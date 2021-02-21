@@ -1,0 +1,11 @@
+a:
+ 	xor eax, eax
+b:
+	jmp a
+	je a+100000
+	call a
+	db 0xe9
+	db 0x00
+	db 0x00
+	db 0x00
+	db 0x00
