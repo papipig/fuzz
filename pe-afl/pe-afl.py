@@ -194,6 +194,8 @@ if __name__ == '__main__':
     pe,ida=instrument.start(args)
     init_snip()
 
+    print ("file length in main: 0x{:x}".format(len(pe.get_raw())))
+
     # stack frame poison instrument
     '''
     if args.stack:

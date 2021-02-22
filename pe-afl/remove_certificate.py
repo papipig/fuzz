@@ -19,6 +19,7 @@ def go(fname):
     with open(name, 'rb') as f:
         data = f.read()[:-s]
     with open(name, 'wb') as f:
+        print ("writing to {}".format(name))
         f.write(data)
     return name
 

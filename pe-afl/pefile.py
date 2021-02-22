@@ -2328,10 +2328,8 @@ class PE(object):
         else:
             self.RICH_HEADER = None
 
-
-    def write(self, filename=None):
+    def write(self, filename=None, append=None, cut=None):
         """Write the PE file.
-
         This function will process all headers and components
         of the PE file and include all changes made (by just
         assigning to attributes in the PE objects) and write
@@ -2368,6 +2366,18 @@ class PE(object):
                                     else:
                                         encoded_data = entry.decode('utf-8').encode('utf-16le')
                                         file_data[offsets[1]:offsets[1]+len(encoded_data)] = encoded_data
+
+        # used by pe-afl
+        # used for cut the overlays
+        if cut:
+            file_data = file_data[:-cut]
+        # used for append new section
+        if append:
+            file_data += append
+        # used for update section raw data
+        for s in self.sections:
+            if hasattr(s, 'raw'):
+                file_data = file_data[:s.PointerToRawData] + s.raw + file_data[s.PointerToRawData+s.SizeOfRawData:]
 
         new_file_data = file_data
         if not filename:
@@ -5780,6 +5790,8 @@ class PE(object):
 
         return self.__data__[:]
 
+    def get_raw(self):
+        return self.__data__
 
     # According to http://corkami.blogspot.com/2010/01/parce-que-la-planche-aura-brule.html
     # if PointerToRawData is less that 0x200 it's rounded to zero. Loading the test file

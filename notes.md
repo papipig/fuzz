@@ -129,7 +129,7 @@ sc.exe create drvname type= kernel start= demand error= normal binPath= C:\XXX\t
 
 ## prerequisites
 
-Install `pefile` (`https://github.com/erocarrera/pefile`)
+Get latest `pefile.py` (`https://github.com/erocarrera/pefile`, no need for the entire repository, main python is stand-alone)
 
 ## ida_dumper.py
 					rip_inst : [] 

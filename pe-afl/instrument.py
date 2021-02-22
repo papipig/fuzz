@@ -76,7 +76,7 @@ def clear_stub():
         # leave space for section table
         import clear_stub
         name = clear_stub.go(pe.path)
-        print('cleared DOS stub')
+        print('cleared DOS stub {}'.format(name))
         load_pe(name)
 
 def check_certificate():
@@ -84,7 +84,7 @@ def check_certificate():
     if d.VirtualAddress:
         import remove_certificate
         name = remove_certificate.go(pe.path)
-        print('removed certificate')
+        print('removed certificate, new name is : {}'.format(name))
         load_pe(name)
 
 def in_range(val, pair):
@@ -266,23 +266,26 @@ def update_reloc_raw(type, raw, v):
 
 def update_and_verify_section_table():
     # update .reloc in section table
+    old_reloc_size = 0
     try:
         idx = [i for i,j in enumerate(pe.sections) if b'.reloc' in j.Name][0]
+        reloc = pe.sections.pop(idx)
+        old_reloc_size = reloc.SizeOfRawData
+        reloc.VirtualAddress = get_last_section('rva')
+        reloc.PointerToRawData = get_last_section('fa')
+        reloc.set_file_offset(get_last_section('tbl'))
+        pe.sections.append(reloc)
     except:
-        return 0
-    reloc = pe.sections.pop(idx)
-    old_reloc_size = reloc.SizeOfRawData
-    reloc.VirtualAddress = get_last_section('rva')
-    reloc.PointerToRawData = get_last_section('fa')
-    reloc.set_file_offset(get_last_section('tbl'))
-    pe.sections.append(reloc)
+        # no reloc section
+        pass    
+
     # confirm all sections have to stick together, don't overlap or seperate
     rva = 0
     fa = 0
     for s in pe.sections:
         if rva != 0 and fa != 0:
             assert rva == s.VirtualAddress and (0 == s.PointerToRawData or fa == s.PointerToRawData)
-            prev_s.next_section_virtual_address = s.VirtualAddress, (hex(s.VirtualAddress), hex(s.PointerToRawData))
+            prev_s.next_section_virtual_address = s.VirtualAddress #, (hex(s.VirtualAddress), hex(s.PointerToRawData))
         prev_s = s
         rva = align_sec(s.VirtualAddress+s.Misc_VirtualSize)
         fa = align_file(s.PointerToRawData+s.SizeOfRawData)
@@ -376,22 +379,8 @@ def seh_padding():
     return is_padded
 
 def update_addr(addr):
-    verb = False
-    if addr == 0x11d0:
-        verb = True
-    if verb:
-        print ("  update_addr addr=0x{:x}".format(addr))
-
     v,s = rva2ofs(addr), get_sec_by_rva(addr)
-
-    if verb:
-        print ("  update_addr v=0x{:x}".format(v))
-        print ("  update_addr s={}".format(str(s.Name)))
-
     if hasattr(s, 'sec_diff'):
-        if verb:
-            print ("  update_addr hasattr 0x{:x} 0x{:x}".format(s.sec_diff, get_text_diff(v)))
-            print ("  update_addr hasattr 0x{:x}".format(addr + s.sec_diff + get_text_diff(v)))
         return addr + s.sec_diff + get_text_diff(v)
     else:
         return addr
@@ -425,9 +414,12 @@ def build_text_raw():
         if is_exe(s) and s.Name.strip(b'\x00')[-1] != '2':
             start = s.PointerToRawData
             end = start + s.SizeOfRawData
-            setattr(s, 'raw', p32(start) + b'\x00'*(start-4) + pe.__data__[start:end])
+            setattr(s, 'raw', p32(start) + b'\x00'*(start-4) + pe.get_raw()[start:end])
+            '''
+            s.raw = [START ADDR 32bits] [ 0000000000 ... 0000 ] + section
+            '''
             name = s.Name.strip(b'\x00')
-            LOG(str(name), '@', hex(start), '~', hex(end))
+            LOG("found section {} @ 0x{:x} ~ 0x{:x}".format(name, start, end))
 
 def update_load_config_tbl(tbl, cnt, pe_size, append, align=4):
     tbl2 = update_addr(tbl - pe.OPTIONAL_HEADER.ImageBase)
@@ -452,7 +444,7 @@ def process_pe():
         if is_exe(sec):
             # empty inject is for triggering the data update later
             if not hasattr(sec, 'addr_set'):
-                inject_code(sec.VirtualAddress+pe.OPTIONAL_HEADER.ImageBase, '')
+                inject_code(sec.VirtualAddress+pe.OPTIONAL_HEADER.ImageBase)
             s = dup_sec(sec)
             setattr(sec, 'sec_diff', s.VirtualAddress - sec.VirtualAddress)
             setattr(sec, 'addr_map', {})
@@ -559,7 +551,7 @@ def process_pe():
     if hasattr(args, 'pe_afl') and not args.nop:
         print('updating relocation in instrumented code ...')
         t = pefile.RELOCATION_TYPE['IMAGE_REL_BASED_HIGHLOW'] if is_32() else pefile.RELOCATION_TYPE['IMAGE_REL_BASED_DIR64']
-        afl_area_ptr = get_sec_by_name('.cov').VirtualAddress + pe.OPTIONAL_HEADER.ImageBase
+        afl_area_ptr = get_sec_by_name(b'.cov').VirtualAddress + pe.OPTIONAL_HEADER.ImageBase
         afl_prev_loc = afl_area_ptr + 0x10000
         if args.callback:
             rr = [afl_prev_loc+0x10, afl_prev_loc+0x20]
@@ -584,7 +576,7 @@ def process_pe():
     print('finalizing ...')
     append = b''
     mapping_txt = ''
-    pe_size = len(pe.__data__) - cut_reloc_size
+    pe_size = len(pe.get_raw()) - cut_reloc_size
     s2 = [s for s in sorted(pe.sections, key=lambda s: s.PointerToRawData) if hasattr(s, 'addr_set')]
     for i,s in enumerate(s2):
        new_s = get_sec_by_name(new_name(s))
@@ -607,6 +599,7 @@ def process_pe():
         append += b'\x00'*0x11000    # reserved for __afl_area_ptr and __afl_prev_loc
         if args.callback or args.filter:
             append = strrep(append, len(append)-0x1000+0x10, p32(0xffffffff))
+    
     # log mapping to file, it can be used in IDA directly
     with open(args.IDA_DUMP.replace('dump', 'mapping'), 'w+') as ff:
         ff.write(mapping_txt)
@@ -649,7 +642,18 @@ def process_pe():
     if hasattr(args, 'pe_afl'):
         pe.FILE_HEADER.NumberOfSections += 1
     LOG('Former AddressOfEntryPoint=0x{:x}'.format(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
+    
+    LOG('  => diff = 0x{:x}'.format(get_text_diff(pe.OPTIONAL_HEADER.AddressOfEntryPoint)))
+
+    m = get_sec_by_name(b'.text').addr_map
+    for a in m:
+        print ("0x{:x}   {}".format(a, m[a]))
+
+    for a in [0x1000, 0x104d, 0x1061, 0x1117, 0x11D0]:
+        print ("0x{:x} => 0x{:x} ({})".format(a, get_text_diff(a),get_text_diff(a)))
+
     pe.OPTIONAL_HEADER.AddressOfEntryPoint = update_addr(pe.OPTIONAL_HEADER.AddressOfEntryPoint)
+
     LOG('SizeOfImage='+hex(pe.OPTIONAL_HEADER.SizeOfImage))
     LOG('NumberOfSections='+hex(pe.FILE_HEADER.NumberOfSections))
     LOG('AddressOfEntryPoint='+hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
@@ -667,7 +671,7 @@ def process_pe():
             s.raw = s.raw[u32(s.raw[:4]):]
             if not is_exe(s):
                 assert len(s.raw) == s.SizeOfRawData, 'Section size has changed'
-            print('updated', s.Name.strip(b'\x00'))
+            print('updated {}'.format(s.Name.strip(b'\x00')))
 
     return cut_reloc_size, append # TODO + append_reloc 
 
@@ -687,7 +691,7 @@ def load_pe(fname):
         os.remove(pe.path)
     try:
         pe = pefile.PE(fname)
-        print ("PE size = 0x{:x}".format(len(pe.__data__)))
+        print ("PE size = 0x{:x}".format(len(pe.get_raw())))
         pe.path = fname
     except:
         print('Invalid PE file @', fname)
@@ -721,14 +725,18 @@ def end():
 
     fname = os.path.abspath(pe.path).split('.')
     fname = fname[0]+'.instrumented.'+fname[-1]
-    
-    ###pe.write(filename=fname, append=append, cut=cut_size)
+
+    pe.write(filename=fname, append=append, cut=cut_size)
+    '''
     pe.write(filename=fname)
+    pe.close()
     with open(fname, 'rb') as f:
         data = f.read() #[:-cut_size]
+        print ("file length before append: 0x{:x}".format(len(data)))
         data += append
     with open(fname, 'wb') as f:
         f.write(data)
+    '''
 
     print('fixing PE checksum ...')
     load_pe(fname)
@@ -737,6 +745,7 @@ def end():
     INFO('instrumented binary at '+fname)
 
 if __name__ == '__main__':
+    print ("hello")
     args = parse_arg()
 
     pe,ida=start(args)

@@ -15,4 +15,5 @@ $(TARGET): ddk.o
 -Wl,--entry,DriverEntry@8 -Wl,--stack,0x40000 -Wl,--dynamicbase -Wl,--nxcompat \
 -nostartfiles -nostdlib -o $(TARGET) \
 $(OBJECTS) -lntoskrnl -lhal
+	strip $(TARGET)
 
