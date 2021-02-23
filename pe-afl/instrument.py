@@ -28,6 +28,7 @@ check64 = lambda v: -0x8000000000000000 <= v < 0x8000000000000000
 is_exe = lambda s: bool(s.Characteristics & pefile.SECTION_CHARACTERISTICS['IMAGE_SCN_MEM_EXECUTE']) if hasattr(s, 'Characteristics') else False
 is_driver = lambda s: '.sys' in s or 'ntoskrnl' in s
 is_32 = lambda : True if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_I386'] else False
+is_64 = lambda : True if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_AMD64'] else False
 strrep = lambda s1, idx, s2: s1[:idx] + s2 + s1[idx+len(s2):]
 va2ofs = lambda v: pe.get_offset_from_rva(v - pe.OPTIONAL_HEADER.ImageBase)
 rva2ofs = lambda v: pe.get_offset_from_rva(v)
@@ -325,7 +326,7 @@ def update_instr(op, operand_len, v):
             # instruction will not be shorter
             return expand_instr(op, v)
         else:
-            return op + chr(v&0xFF).encode('hex')
+            return op + "{:02x}".format(v&0xFF)
     else:
         return expand_instr(op, v)
 
@@ -459,7 +460,7 @@ def process_pe():
         dup_sec(s, name=b'.cov', size=0x10fff)
     
     cut_reloc_size = update_and_verify_section_table()
-    assert cut_reloc_size == 0
+    #assert cut_reloc_size == 0
 
     # update relative address
     print('expanding relative ...')
@@ -492,7 +493,8 @@ def process_pe():
         cmd_len = relative[k].tlen
         e = int(len(expand_instr(relative[k].op, 0))/2-cmd_len)
         # the expanded byte is stored in the next instruction
-        inject_code(k+cmd_len, expand=b'\x00'*e)
+        print ("expanding {} bytes @0x{:x} cmd_len={}".format(e, k, cmd_len))
+        inject_code(k+cmd_len, expand=b'\x01'*e)
     print('expanded %d of %d branches ' % (len(expand_list), len(relative)))
 
     build_map()
@@ -585,7 +587,7 @@ def process_pe():
            append += s.raw[old_idx:idx] + injected[idx].exp + injected[idx].align + injected[idx].code
            tt = pe_size+len(append)-injected[idx].tlen+len(injected[idx].exp)
            tts = get_sec_by_ofs(tt)
-           LOG('[merge] idx =', hex(idx), hex(tt))
+           #LOG('[merge] idx =', hex(idx), hex(tt))
            mapping_txt += hex(idx-s.PointerToRawData+s.VirtualAddress+pe.OPTIONAL_HEADER.ImageBase).strip('L') + '\t'
            mapping_txt += hex(tt-tts.PointerToRawData+tts.VirtualAddress+pe.OPTIONAL_HEADER.ImageBase).strip('L') + '\n'
            old_idx = idx
@@ -641,9 +643,6 @@ def process_pe():
     pe.FILE_HEADER.NumberOfSections += len([s for s in pe.sections if hasattr(s, 'sec_diff')])
     if hasattr(args, 'pe_afl'):
         pe.FILE_HEADER.NumberOfSections += 1
-    LOG('Former AddressOfEntryPoint=0x{:x}'.format(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
-    
-    LOG('  => diff = 0x{:x}'.format(get_text_diff(pe.OPTIONAL_HEADER.AddressOfEntryPoint)))
 
     m = get_sec_by_name(b'.text').addr_map
     for a in m:
