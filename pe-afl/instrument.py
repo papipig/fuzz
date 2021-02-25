@@ -105,9 +105,11 @@ def inject_code(addr, code=b'', expand=b''):
     v,s = va2ofs(addr), get_sec_by_va(addr)
     assert is_exe(s), 'v is out of .text'
 
+    print ("injecting code  @0x{:x} code={} expand={}".format(addr, code, expand))
+
     # instrument with word-aligned
-    align = ''
-    if expand == '':
+    align = b''
+    if expand == b'':
         code += b'\x90' * (len(code)%2)
     else:
         align = b'\x90' * (len(expand)%2)
@@ -412,7 +414,7 @@ def dup_sec(sec, name=None, size=0):
 
 def build_text_raw():
     for s in pe.sections:
-        if is_exe(s) and s.Name.strip(b'\x00')[-1] != '2':
+        if is_exe(s) and (s.Name.strip(b'\x00')[-1] != b'2'[0]):
             start = s.PointerToRawData
             end = start + s.SizeOfRawData
             setattr(s, 'raw', p32(start) + b'\x00'*(start-4) + pe.get_raw()[start:end])
@@ -493,7 +495,7 @@ def process_pe():
         cmd_len = relative[k].tlen
         e = int(len(expand_instr(relative[k].op, 0))/2-cmd_len)
         # the expanded byte is stored in the next instruction
-        print ("expanding {} bytes @0x{:x} cmd_len={}".format(e, k, cmd_len))
+        #print ("expanding {} bytes @0x{:x} cmd_len={}".format(e, k, cmd_len))
         inject_code(k+cmd_len, expand=b'\x01'*e)
     print('expanded %d of %d branches ' % (len(expand_list), len(relative)))
 
