@@ -21,51 +21,82 @@ endian = "big" if is_be else "little"
 print ('[INFO] Processor: {}, {}bit, {} endian'.format(info.procName, bits, endian))
 
 def parse_relative(ea):
-    buf = idc.GetManyBytes(ea, ItemSize(ea))
-    idx = 0
-    mpx_candidate = False
+	buf = idc.GetManyBytes(ea, ItemSize(ea))
+
+	op1type = idc.GetOpType(ea, 0)
+	op2type = idc.GetOpType(ea, 1)
+
+	'''
+	idaapi.o_void      # No Operand                           ----------
+	idaapi.o_reg       # General Register (al,ax,es,ds...)    reg
+	idaapi.o_mem       # Direct Memory Reference  (DATA)      addr
+	idaapi.o_phrase    # Memory Ref [Base Reg + Index Reg]    phrase
+	idaapi.o_displ     # Memory Reg [Base Reg + Index Reg + Displacement] phrase+addr
+	idaapi.o_imm       # Immediate Value                      value
+	idaapi.o_far       # Immediate Far Address  (CODE)        addr
+	idaapi.o_near      # Immediate Near Address (CODE)        addr
+	'''
+
+	addr_optype = [	idaapi.o_near,
+					idaapi.o_far,
+					idaapi.o_mem
+					]
+
+	if op1type in addr_optype and op2type in addr_optype:
+		raise '[ERR] several relative operands @', H(ea)
+		
+	if op1type in addr_optype:
+		n_op = 0
+	elif op2type in addr_optype:
+		n_op = 1
+	else:
+		return None, None, None
+
+	SetColor(ea, CIC_ITEM, 0xffd0d0)		
+	return buf[:-4], buf[-4:], n_op
 
 
-    # REX (0x40-0x4F)
-    # TODO: mov r64, rel32
-    # TODO: lea r64, rel32
-
-    
 
 
-    # call (e8), http://x86.renejeschke.de/html/file_module_x86_id_26.html
-    # jmp (eb/e9), http://x86.renejeschke.de/html/file_module_x86_id_147.html
-    # jxx (0F 80/0F 81/0F 82/0F 83/0F 84/0F 85/0F 86/0F 87/0F 88/0F 89/0F 8A/0F 8B/0F 8C/0F 8D/0F 8E/0F 8F/70/71/72/73/74/75/76/77/78/79/7A/7B/7C/7D/7E/7F), http://x86.renejeschke.de/html/file_module_x86_id_146.html
-    # jcxz/jecxz (67 e3/e3)
-    # loop/loope/loopz/loopne/loopnz (e0/e1/e2), http://x86.renejeschke.de/html/file_module_x86_id_161.html
-    if ord(buf[idx]) == 0xf2:
-        idx += 1
-        mpx_candidate = True
+	idx = 0
+	mpx_candidate = False
 
-    if ord(buf[idx]) in [0xe0, 0xe1, 0xe2, 0xe3, 0xe8, 0xe9, 0xeb]:
-        idx += 1
-    elif ord(buf[idx]) == 0x0f and (ord(buf[idx+1]) >= 0x80 and ord(buf[idx+1]) <= 0x8f):
-        idx += 2
-    elif (ord(buf[idx]) >= 0x70 and ord(buf[idx]) <= 0x7f):
-        idx += 1
-    elif ord(buf[idx]) == 0x67 and ord(buf[idx+1]) == 0xe3:
-        idx += 2
+	# call (e8), http://x86.renejeschke.de/html/file_module_x86_id_26.html
+	# jmp (eb/e9), http://x86.renejeschke.de/html/file_module_x86_id_147.html
+	# jxx (0F 80/0F 81/0F 82/0F 83/0F 84/0F 85/0F 86/0F 87/0F 88/0F 89/0F 8A/0F 8B/0F 8C/0F 8D/0F 8E/0F 8F/70/71/72/73/74/75/76/77/78/79/7A/7B/7C/7D/7E/7F), http://x86.renejeschke.de/html/file_module_x86_id_146.html
+	# jcxz/jecxz (67 e3/e3)
+	# loop/loope/loopz/loopne/loopnz (e0/e1/e2), http://x86.renejeschke.de/html/file_module_x86_id_161.html
+	'''
+	if ord(buf[idx]) == 0xf2:
+		idx += 1
+		mpx_candidate = True
 
-    if mpx_candidate and idx == 1:
-        idx = 0
-  
-    if idx:
-        return buf[0:idx], buf[idx:]
-    else:
-        return None, None
+	if ord(buf[idx]) in [0xe0, 0xe1, 0xe2, 0xe3, 0xe8, 0xe9, 0xeb]:
+		idx += 1
+	elif ord(buf[idx]) == 0x0f and (ord(buf[idx+1]) >= 0x80 and ord(buf[idx+1]) <= 0x8f):
+		idx += 2
+	elif (ord(buf[idx]) >= 0x70 and ord(buf[idx]) <= 0x7f):
+		idx += 1
+	elif ord(buf[idx]) == 0x67 and ord(buf[idx+1]) == 0xe3:
+		idx += 2
+
+	if mpx_candidate and idx == 1:
+		idx = 0
+
+	if idx:
+#		SetColor(ea, CIC_ITEM, 0xd0ffd0)
+		return buf[0:idx], buf[idx:]
+	else:
+		return None, None
+	'''
 
 def add_relative(ea):
     # need operand length, so parse it manually
-    op, operand = parse_relative(ea)
+    op, operand, n_op = parse_relative(ea)
     if op and operand:
-        assert len(idc.GetOpnd(ea, 1)) == 0, 'more than 1 operand'
+        #assert len(idc.GetOpnd(ea, 1)) == 0, 'more than 1 operand'
         assert len(operand) == 1 or len(operand) == 4, 'operand is not rel32'
-        relative[ea] = [idc.GetOperandValue(ea,0), op.encode('hex'), len(operand), len(op+operand)]
+        relative[ea] = [idc.GetOperandValue(ea,n_op), op.encode('hex'), len(operand), len(op+operand)]
 
 possible_data = []
 def add_basic_block(ea):
@@ -203,7 +234,7 @@ def process(text):
         check_unicode(h)
         if isCode(GetFlags(h)):
             if not code_start:
-                code_start = h
+            	code_start = h
             if bits == '32':
                 check_stack_frame32(h)
             elif bits == '64':
@@ -240,7 +271,7 @@ for ea,_ in seg:
     process(ea)
 
 bb = sorted(list(set(bb)))
-set_color()
+#####set_color()
 
 # dump result
 if len(possible_code):

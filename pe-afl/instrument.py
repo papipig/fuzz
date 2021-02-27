@@ -30,6 +30,7 @@ is_driver = lambda s: '.sys' in s or 'ntoskrnl' in s
 is_32 = lambda : True if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_I386'] else False
 is_64 = lambda : True if pe.FILE_HEADER.Machine == pefile.MACHINE_TYPE['IMAGE_FILE_MACHINE_AMD64'] else False
 strrep = lambda s1, idx, s2: s1[:idx] + s2 + s1[idx+len(s2):]
+va2rva = lambda v: (v - pe.OPTIONAL_HEADER.ImageBase)
 va2ofs = lambda v: pe.get_offset_from_rva(v - pe.OPTIONAL_HEADER.ImageBase)
 rva2ofs = lambda v: pe.get_offset_from_rva(v)
 ofs2rva = lambda v: pe.get_rva_from_offset(v)
@@ -105,7 +106,7 @@ def inject_code(addr, code=b'', expand=b''):
     v,s = va2ofs(addr), get_sec_by_va(addr)
     assert is_exe(s), 'v is out of .text'
 
-    print ("injecting code  @0x{:x} code={} expand={}".format(addr, code, expand))
+#    print ("injecting code  @0x{:x} code={} expand={}".format(addr, code, expand))
 
     # instrument with word-aligned
     align = b''
@@ -159,13 +160,20 @@ def get_last_section(type):
 def get_text_diff(fa):
     s = get_sec_by_ofs(fa)
     diff = 0
-    if fa in s.addr_map:
-        diff = s.addr_map[fa].diff-fa
-    else:
-        last_old = get_last(s.addr_set, fa)
-        if last_old:
-            diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len
-    return diff
+
+    assert s != None, "no section for {:x}".format(fa)
+
+    try:
+        if fa in s.addr_map:
+            diff = s.addr_map[fa].diff-fa
+        else:
+            last_old = get_last(s.addr_set, fa)
+            if last_old:
+                diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len
+        return diff
+    except:
+        return 0
+
 
 def get_data_diff(fa):
     s = get_sec_by_ofs(fa)
@@ -297,7 +305,7 @@ def update_and_verify_section_table():
 
 
 def get_relative_diff(from_fa, to_fa):
-#           +----------------+
+#      get_relati     +----------------+
 #           |                v           I = injected
 #     +---+-+-+              +---+---+   C = original code
 #     | I | C |              | I | C |
@@ -311,8 +319,19 @@ def get_relative_diff(from_fa, to_fa):
         diff = (to_fa+get_text_diff(to_fa)-to_s.PointerToRawData) - (from_fa+get_text_diff(from_fa)-from_s.PointerToRawData)
         if from_fa in from_s.addr_set:
             diff -= from_s.addr_map[from_fa].code_len
-        sec_diff = (to_s.VirtualAddress+to_s.sec_diff) - (from_s.VirtualAddress+from_s.sec_diff)
+        
+        if hasattr(to_s, 'sec_diff'):
+            to_s_diff = to_s.sec_diff
+        else:
+            to_s_diff = 0
+        if hasattr(from_s, 'sec_diff'):
+            from_s_diff = from_s.sec_diff
+        else:
+            from_s_diff = 0
+
+        sec_diff = (to_s.VirtualAddress+to_s_diff) - (from_s.VirtualAddress+from_s_diff)
         return from_fa + diff + sec_diff
+
 
     # for intra-section
     diff = get_text_diff(to_fa) - get_text_diff(from_fa)
@@ -339,6 +358,7 @@ def expand_instr(op, v):
     if op.startswith('f2'):
         mpx = 'f2'
         op = op[2:]
+        raise "Should not happen"
 
     if op == 'e2':              		    # loop rel8
         assert mpx == '', 'unsupport op ' + op
@@ -357,7 +377,8 @@ def expand_instr(op, v):
     elif op[:3] == '0f8':                           # jxx rel32
         return mpx + op + dword(v)
     else:
-        assert False, 'unsupport op ' + op 
+        print ("unsupport op ? {}".format(op))
+        return op + dword(v)
 
 def seh_padding():
     # SEHandlerTable have to align with 4-byte
@@ -502,11 +523,13 @@ def process_pe():
     build_map()
     seh_padding()
     print('updating relative ...')
-    for i in injected:
-        print ("0x{:x} -> {}".format(i, injected[i]))
+#   for i in injected:
+#        print ("0x{:x} -> {}".format(i, injected[i]))
     for k in sorted(relative):
         from_ofs = va2ofs(k)
         to_ofs = va2ofs(relative[k].target)
+        print ('0x{:x} (VA {:x}) => 0x{:x} (VA {:x})'.format(k, from_ofs, relative[k].target, to_ofs))
+
         new_ofs = get_relative_diff(from_ofs, to_ofs)
         LOG('[update relative]', hex(k), hex(relative[k].target), hex(to_ofs), hex(new_ofs), str(relative[k].tlen))
         cmd_len = relative[k].tlen
