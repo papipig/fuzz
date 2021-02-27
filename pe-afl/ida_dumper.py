@@ -53,7 +53,14 @@ def parse_relative(ea):
 		return None, None, None
 
 	SetColor(ea, CIC_ITEM, 0xffd0d0)		
-	return buf[:-4], buf[-4:], n_op
+
+	# get len of operand
+	if ItemSize(ea) == 2:
+		l = 1
+	else:
+		l = 4
+
+	return buf[:-l], buf[-l:], n_op
 
 
 

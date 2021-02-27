@@ -303,7 +303,6 @@ def update_and_verify_section_table():
     s.next_section_virtual_address = s.VirtualAddress+s.Misc_VirtualSize
     return old_reloc_size
 
-
 def get_relative_diff(from_fa, to_fa):
 #      get_relati     +----------------+
 #           |                v           I = injected
@@ -312,11 +311,12 @@ def get_relative_diff(from_fa, to_fa):
 #     ----+---+              +---+-+-+
 #     ^                            |
 #     +----------------------------+
-    from_s = get_sec_by_ofs(from_fa)
-    to_s = get_sec_by_ofs(to_fa)
+    from_s = get_sec_by_rva(from_fa)
+    to_s = get_sec_by_rva(to_fa)
     if from_s != to_s:
         # for inter-section
-        diff = (to_fa+get_text_diff(to_fa)-to_s.PointerToRawData) - (from_fa+get_text_diff(from_fa)-from_s.PointerToRawData)
+        diff = (to_fa+get_text_diff(to_fa)-to_s.VirtualAddress) - (from_fa+get_text_diff(from_fa)-from_s.VirtualAddress)
+###        diff = (to_fa+get_text_diff(to_fa)-to_s.PointerToRawData) - (from_fa+get_text_diff(from_fa)-from_s.PointerToRawData)
         if from_fa in from_s.addr_set:
             diff -= from_s.addr_map[from_fa].code_len
         
@@ -360,6 +360,23 @@ def expand_instr(op, v):
         op = op[2:]
         raise "Should not happen"
 
+    supported = [
+                   'ff15',     # call [rel32]
+                    'ff25',     # jmp [rel32]
+                    '8b05',     # mov eax, [rel32]
+                    '8b0d',     # mov ecx, [rel32]
+                    '8b15',     # mov edx, [rel32]
+                    '488b05',   # mov rax, [rel32]
+                    '488b0d',   # mov rcx, [rel32]
+                    '488b15',   # mov rdx, [rel32]
+                    '488b05',   # lea rax, rel32
+                    '488d0d',   # lea rcx, rel32
+                    '488d15',   # lea rdx, rel32
+                    '8905',     # mov [rel32], eax
+                    '890d',     # mov [rel32], ecx
+                    '8915',     # mov [rel32], edx
+    ]
+
     if op == 'e2':              		    # loop rel8
         assert mpx == '', 'unsupport op ' + op
         return '4975' + dword(v)		    # dec ecx ; jnz label
@@ -377,7 +394,7 @@ def expand_instr(op, v):
     elif op[:3] == '0f8':                           # jxx rel32
         return mpx + op + dword(v)
     else:
-        print ("unsupport op ? {}".format(op))
+        assert op in supported
         return op + dword(v)
 
 def seh_padding():
@@ -401,6 +418,37 @@ def seh_padding():
         build_map(s)
         print('SEHandlerTable is padded')
     return is_padded
+
+def pdata_update():
+    d = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_EXCEPTION']]
+    s = get_sec_by_rva(d.VirtualAddress)
+
+    #print ("pdata: {}".format(d))
+    start = s.PointerToRawData
+    end = start + s.SizeOfRawData
+#    setattr(s, 'raw', p32(start) + b'\x00'*(start-4) + pe.get_raw()[start:end])
+    pdata = pe.get_raw()[start:end]
+
+    i = 0
+
+    pdata2 = b''
+
+    while True:
+        a, b, c = struct.unpack('III', pdata[i:i+12])
+        if a == 0:
+            break
+
+        A = update_addr(a)
+        B = update_addr(b)
+        #print ("pdata: 0x{:x} 0x{:x} => 0x{:x} 0x{:x}".format(a, b, A, B))
+
+        d = struct.pack('III', A, B, c)
+        pdata2 += d
+
+        i += 12
+
+    pe.get_raw()[start:start+i] = pdata2
+    return
 
 def update_addr(addr):
     v,s = rva2ofs(addr), get_sec_by_rva(addr)
@@ -492,6 +540,7 @@ def process_pe():
     for k in sorted(ida['relative']):
         relative[k] = RELA(*ida['relative'][k])
     for k in sorted(relative):
+        #print ("@0x{:x} ...... {}".format(k, relative[k].opnd))
         if relative[k].opnd == 1: # short jmp
             order = -1 if k>relative[k].target else 1
             for i in range(k, relative[k].target+order, order):
@@ -501,6 +550,9 @@ def process_pe():
                     jmp_map[i] = [k]
                 else:
                     jmp_map[i].append(k)
+    
+    #print ("Jump map is: {}".format(jmp_map))
+
     expand_list = []
     for i in injected:
         if injected[i].va in jmp_map:
@@ -522,19 +574,23 @@ def process_pe():
 
     build_map()
     seh_padding()
+    pdata_update()
     print('updating relative ...')
 #   for i in injected:
 #        print ("0x{:x} -> {}".format(i, injected[i]))
     for k in sorted(relative):
+        #print ("Relative: k = 0x{:x}, target = 0x{:x}".format(k, relative[k].target))
         from_ofs = va2ofs(k)
-        to_ofs = va2ofs(relative[k].target)
-        print ('0x{:x} (VA {:x}) => 0x{:x} (VA {:x})'.format(k, from_ofs, relative[k].target, to_ofs))
-
-        new_ofs = get_relative_diff(from_ofs, to_ofs)
-        LOG('[update relative]', hex(k), hex(relative[k].target), hex(to_ofs), hex(new_ofs), str(relative[k].tlen))
+        from_rva = va2rva(k)
+        to_rva = va2rva(relative[k].target)
+#        print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
+        delta_rva = get_relative_diff(from_rva, to_rva)
+#        print ('delta_rva = 0x{:}'.format(delta_rva))
+        LOG('[update relative]', hex(k), hex(relative[k].target), hex(to_rva), hex(delta_rva), str(relative[k].tlen))
         cmd_len = relative[k].tlen
         expand_len = 0
-        # next_ofs is the offset to next instruction
+
+        # next_ofs is the offset to next instruction or data
         next_ofs = va2ofs(k+cmd_len)
         if next_ofs in injected:
 #            print ("next_ofs 0x{:x} in injected".format(next_ofs))
@@ -542,7 +598,8 @@ def process_pe():
         else:
 #            print ("next_ofs 0x{:x} NOT in injected".format(next_ofs))
             pass
-        instr = bytes.fromhex(update_instr(relative[k].op, relative[k].opnd+expand_len, new_ofs-(from_ofs+cmd_len+expand_len)))
+        #print ("0x{:x}".format(delta_rva-(from_rva+cmd_len+expand_len)))
+        instr = bytes.fromhex(update_instr(relative[k].op, relative[k].opnd+expand_len, delta_rva-(from_rva+cmd_len+expand_len)))
 #        print ("new instruction: {}".format(instr.hex()))
         assert len(instr) == cmd_len + expand_len
         if instr[cmd_len:] != b'': # update expand
@@ -669,12 +726,14 @@ def process_pe():
     if hasattr(args, 'pe_afl'):
         pe.FILE_HEADER.NumberOfSections += 1
 
+    '''
     m = get_sec_by_name(b'.text').addr_map
     for a in m:
         print ("0x{:x}   {}".format(a, m[a]))
 
     for a in [0x1000, 0x104d, 0x1061, 0x1117, 0x11D0]:
         print ("0x{:x} => 0x{:x} ({})".format(a, get_text_diff(a),get_text_diff(a)))
+    '''
 
     pe.OPTIONAL_HEADER.AddressOfEntryPoint = update_addr(pe.OPTIONAL_HEADER.AddressOfEntryPoint)
 
