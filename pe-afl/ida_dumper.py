@@ -25,6 +25,14 @@ def parse_relative(ea):
     idx = 0
     mpx_candidate = False
 
+
+    # REX (0x40-0x4F)
+    # TODO: mov r64, rel32
+    # TODO: lea r64, rel32
+
+    
+
+
     # call (e8), http://x86.renejeschke.de/html/file_module_x86_id_26.html
     # jmp (eb/e9), http://x86.renejeschke.de/html/file_module_x86_id_147.html
     # jxx (0F 80/0F 81/0F 82/0F 83/0F 84/0F 85/0F 86/0F 87/0F 88/0F 89/0F 8A/0F 8B/0F 8C/0F 8D/0F 8E/0F 8F/70/71/72/73/74/75/76/77/78/79/7A/7B/7C/7D/7E/7F), http://x86.renejeschke.de/html/file_module_x86_id_146.html
@@ -114,8 +122,14 @@ def check_stack_frame32(ea):
         stk_frame[ea] = ((NextHead(ea+5)-(ea+5)), int(line.split(',')[-1].strip('h'), 16))
 
 def check_stack_frame64(ea):
-    # TODO
-    pass
+    snip = ['push    rbp',
+    'mov     rbp, rsp',
+    'sub     rsp, ']
+    if idc.GetDisasm(ea) != snip[0] or idc.GetDisasm(NextHead(ea)) != snip[1] or idc.GetDisasm(NextHead(NextHead(ea))) != snip[2]:
+        return
+    line = idc.GetDisasm(NextHead(NextHead(NextHead(ea))))
+    if line.startswith(snip[3]):
+        stk_frame[ea] = ((NextHead(ea+5)-(ea+5)), int(line.split(',')[-1].strip('h'), 16))
 
 possible_code = []
 def check_suspicious_data(segea):
