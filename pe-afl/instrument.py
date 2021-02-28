@@ -457,6 +457,16 @@ def update_addr(addr):
     else:
         return addr
 
+
+def config_cov_sec(s):
+    s.PointerToRawData = 0
+    s.SizeOfRawData = 0
+    LOG('configured section', s.Name.strip(b'\x00'))
+    print (s)
+    return s
+
+
+
 def dup_sec(sec, name=None, size=0):
     s = pefile.SectionStructure(pe.__IMAGE_SECTION_HEADER_format__, pe=pe)
     s.__unpack__(sec.__pack__())
@@ -478,7 +488,7 @@ def dup_sec(sec, name=None, size=0):
     pe.__structures__.append(s)
     pe.sections.append(s)
     print('added section', s.Name.strip(b'\x00'))
-    LOG(str(s))
+    print(str(s))
     return s
 
 def build_text_raw():
@@ -521,15 +531,12 @@ def process_pe():
             setattr(sec, 'sec_diff', s.VirtualAddress - sec.VirtualAddress)
             setattr(sec, 'addr_map', {})
 
-### TODO: xdata on 64 ?
-    try:
-        s = get_sec_by_name(b'.data')
-    except:
-        s = get_sec_by_name(b'.xdata')
-    assert not is_driver(pe.path) or s.Characteristics & pefile.SECTION_CHARACTERISTICS['IMAGE_SCN_MEM_NOT_PAGED'], 'any non page memory ?'
+    s = get_sec_by_name(b'.bss')
+    #assert not is_driver(pe.path) or s.Characteristics & pefile.SECTION_CHARACTERISTICS['IMAGE_SCN_MEM_NOT_PAGED'], 'any non page memory ?'
     if hasattr(args, 'pe_afl'):
-        dup_sec(s, name=b'.cov', size=0x10fff)
-    
+        #dup_sec(s, name=b'.cov', size=0x10fff))
+        config_cov_sec(dup_sec(s, name=b'.cov', size=0x10fff))
+
     cut_reloc_size = update_and_verify_section_table()
     #assert cut_reloc_size == 0
 

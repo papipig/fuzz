@@ -7,11 +7,11 @@ import sys
     add IMAGE_SCN_MEM_NON_PAGED to these sections
 '''
 sections = [
- b'.text\x00\x00\x00',
- b'.data\x00\x00\x00',
- b'.rdata\x00\x00',
- b'.pdata\x00\x00',
- b'.xdata\x00\x00',
+ b'.bss\x00\x00\x00\x00',
+ #b'.data\x00\x00\x00',
+ #b'.rdata\x00\x00',
+ #b'.pdata\x00\x00',
+ #b'.xdata\x00\x00',
 ]
 
 def patch(fname):

@@ -116,12 +116,13 @@ def init_snip():
         args.snip_reloc = [m.start() for m in re.finditer(p32(MAGIC), bb_snippet(0))]
 
     elif instrument.is_64():
+        """
         snip['single'] = asm('''
     push rax
     push rbx
     lahf
     seto al
-    mov ebx, dword ptr ['''+hex(M_PREV_LOC1)+''']           # __afl_prev_loc @ .cov+0x10000
+    mov ebx, dword ptr [rel '''+hex(M_PREV_LOC1)+''']           # __afl_prev_loc @ .cov+0x10000
     xor ebx, '''+hex(C_ADDR1)+'''
     inc byte ptr ['''+hex(M_AREA_PTR)+'''+ebx]              # __afl_area_ptr @ .cov
     mov dword ptr ['''+hex(M_PREV_LOC2)+'''], '''+hex(C_ADDR2)+'''
@@ -131,6 +132,38 @@ def init_snip():
     pop rax
 
     ''', arch = 'amd64', os = 'windows')
+
+00000000  50                push rax
+00000001  53                push rbx
+00000002  51                push rcx
+00000003  9F                lahf
+00000004  0F90C0            seto al
+00000007  8B1D22000000      mov ebx,[rel 0x2f]
+0000000D  81F334120000      xor ebx,0x1234
+00000013  488D0D15000000    lea rcx,[rel 0x2f]
+0000001A  4801D9            add rcx,rbx
+0000001D  FE01              inc byte [rcx]
+0000001F  C70FE015060000007698  mov dword [rel 0x2f],0x9876
+         -0000
+00000029  047F              add al,0x7f
+0000002B  9E                sahf
+0000002C  59                pop rcx
+0000002D  5B                pop rbx
+0000002E  58                pop rax
+
+
+"""
+        snip['single'] =  b'\x50'
+        snip['single'] += b'\x53\x51\x9f'
+        snip['single'] += b'\x0f\x90\xC0'
+        snip['single'] += b'\x8B\x1D' + struct.pack('<I',M_PREV_LOC1)
+        snip['single'] += b'\x81\xF3' + struct.pack('<I',C_ADDR1)
+        snip['single'] += b'\x48\x8D\x0D' + struct.pack('<I',M_AREA_PTR)
+        snip['single'] += b'\x48\x01\xD9'
+        snip['single'] += b'\xFE\x01'
+        snip['single'] += b'\xC7\x0F\xE0\x15' + struct.pack('<I',M_PREV_LOC2) + struct.pack('<I',C_ADDR2)
+        snip['single'] += b'\x04\x7F'
+        snip['single'] += b'\x9E\x59\x5B\x58'
 
         args.snip_len = len(bb_snippet(0))
         args.snip_reloc = [m.start() for m in re.finditer(p32(MAGIC), bb_snippet(0))]

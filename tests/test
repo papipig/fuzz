@@ -1,12 +1,14 @@
 #!/bin/sh
+rm -f 32.asm
+rm -f 64.asm
+rm -f 32
+rm -f 64
 clear
-echo "[BITS 32]" > 32.asm
-echo "[BITS 64]" > 64.asm
+echo "BITS 32" > 32.asm
+echo "BITS 64" > 64.asm
 cat code.asm >> 32.asm
 cat code.asm >> 64.asm
-nasm 32.asm
-nasm 64.asm
 echo '------------------ 32 BITS ---------'
-ndisasm -b 32 32
+nasm 32.asm && ndisasm -b 32 32
 echo '------------------ 64 BITS ---------'
-ndisasm -b 64 64
+nasm 64.asm && ndisasm -b 64 64
