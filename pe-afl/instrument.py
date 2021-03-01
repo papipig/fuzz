@@ -461,7 +461,7 @@ def update_addr(addr):
 def config_cov_sec(s):
     s.PointerToRawData = 0
     s.SizeOfRawData = 0
-    LOG('configured section', s.Name.strip(b'\x00'))
+    LOG('configured section {}'.format(s.Name.strip(b'\x00')))
     print (s)
     return s
 
@@ -642,11 +642,13 @@ def process_pe():
     if hasattr(args, 'pe_afl') and not args.nop:
         print('updating relocation in instrumented code ...')
         t = pefile.RELOCATION_TYPE['IMAGE_REL_BASED_HIGHLOW'] if is_32() else pefile.RELOCATION_TYPE['IMAGE_REL_BASED_DIR64']
-        afl_area_ptr = get_sec_by_name(b'.cov').VirtualAddress + pe.OPTIONAL_HEADER.ImageBase
+        afl_area_ptr = get_sec_by_name(b'.cov').VirtualAddress
         afl_prev_loc = afl_area_ptr + 0x10000
         if args.callback:
+            assert True, "TODO"
             rr = [afl_prev_loc+0x10, afl_prev_loc+0x20]
         elif args.filter:
+            assert True, "TODO"
             rr = [afl_prev_loc+0x10, afl_prev_loc, afl_area_ptr, afl_prev_loc]
         else: # single and multi
             rr = [afl_prev_loc, afl_area_ptr, afl_prev_loc]
@@ -657,8 +659,14 @@ def process_pe():
             s = get_sec_by_ofs(v)
             addr = ofs2rva(v) + s.sec_diff + get_text_diff(v)
             addr -= len(injected[v].exp)
+
+            print ("@0x{:x}    0x{:x}/0x{:x}       ".format(update_addr(v) ,afl_area_ptr, afl_prev_loc))
             for i in range(len(m)):
-                injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]))
+                #### 64 bits: relative addresses from RIP
+                injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]-(update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i])))
+
+                #### 32 bits: Virtual addresses
+                ####injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i] + pe.OPTIONAL_HEADER.ImageBase))
                 add_to_reloc(addr + m[i], t)
     '''
     append_reloc = write_reloc()

@@ -4,6 +4,7 @@ import instrument
 import argparse
 import os
 import re
+import numpy as np
 
 if os.name == 'nt':
     import subprocess
@@ -133,43 +134,37 @@ def init_snip():
 
     ''', arch = 'amd64', os = 'windows')
 
-00000000  50                push rax
-00000001  53                push rbx
-00000002  51                push rcx
-00000003  9F                lahf
-00000004  0F90C0            seto al
-00000007  8B1D22000000      mov ebx,[rel 0x2f]
-0000000D  81F334120000      xor ebx,0x1234
-00000013  488D0D15000000    lea rcx,[rel 0x2f]
-0000001A  4801D9            add rcx,rbx
-0000001D  FE01              inc byte [rcx]
-0000001F  C70FE015060000007698  mov dword [rel 0x2f],0x9876
-         -0000
-00000029  047F              add al,0x7f
-0000002B  9E                sahf
-0000002C  59                pop rcx
-0000002D  5B                pop rbx
-0000002E  58                pop rax
-
 
 """
-        snip['single'] =  b'\x50'
-        snip['single'] += b'\x53\x51\x9f'
-        snip['single'] += b'\x0f\x90\xC0'
-        snip['single'] += b'\x8B\x1D' + struct.pack('<I',M_PREV_LOC1)
-        snip['single'] += b'\x81\xF3' + struct.pack('<I',C_ADDR1)
-        snip['single'] += b'\x48\x8D\x0D' + struct.pack('<I',M_AREA_PTR)
-        snip['single'] += b'\x48\x01\xD9'
-        snip['single'] += b'\xFE\x01'
-        snip['single'] += b'\xC7\x0F\xE0\x15' + struct.pack('<I',M_PREV_LOC2) + struct.pack('<I',C_ADDR2)
-        snip['single'] += b'\x04\x7F'
-        snip['single'] += b'\x9E\x59\x5B\x58'
+
+        snip['single'] =  b'\x50'                                           # push rax
+        snip['single'] += b'\x53'                                           # push rbx
+        snip['single'] += b'\x51'                                           # push rcv
+        snip['single'] += b'\x9f'                                           # lahf
+        snip['single'] += b'\x0f\x90\xC0'                                   # seto al
+        snip['single'] += b'\x8B\x1d' + struct.pack('<I',M_PREV_LOC1)       # mov ebx, [rel M_PREV_LOC1]
+        snip['single'] += b'\x81\xF3' + struct.pack('<I',C_ADDR1)           # xor ebx, C_ADDR1
+        snip['single'] += b'\x48\x8d\x0d' + struct.pack('<I',M_AREA_PTR)    # lea rcx, [rel M_AREA_PTR]
+        snip['single'] += b'\x48\x01\xd9'                                   # add rcx, rbx
+        snip['single'] += b'\xfe\x01'                                       # inc byte [rcx]
+        snip['single'] += b'\xC7\x05' + struct.pack('<I',M_PREV_LOC2) + struct.pack('<I',C_ADDR2)
+                                                                            # mov dword [rel M_PREV_LOC2], C_ADDR2
+        snip['single'] += b'\x04\x7f'                                       # add al, 0x7f
+        snip['single'] += b'\x9e'                                           # sahf
+        snip['single'] += b'\x59'                                           # pop rcx
+        snip['single'] += b'\x5b'                                           # pop rbx
+        snip['single'] += b'\x58'                                           # pop rax
 
         args.snip_len = len(bb_snippet(0))
         args.snip_reloc = [m.start() for m in re.finditer(p32(MAGIC), bb_snippet(0))]
+        print (args.snip_reloc)
+        # sizes of instructions containing patched pointers, needed for offset computation (starting at NEXT instuction's VA)
+        args.snip_sizes = [4, 4, 8]
 
     else:
-        raise "not 32 nor 64 bits. Should not happen"
+        raise Exception("not 32 nor 64 bits. Should not happen")
+
+np.random.seed(0)
 
 def bb_snippet(addr):
     if args.nop:
@@ -182,8 +177,10 @@ def bb_snippet(addr):
         s = snip['filter']
     else:
         s = snip['single']
-    r = s.replace(p32(C_ADDR1), p32(addr&0xFFFF),1)
-    return r.replace(p32(C_ADDR2), p32((addr>>1)&0xFFFF))
+    addr1 = int(np.random.rand()*0x10000)
+    addr2 = int(np.random.rand()*0x10000)
+    r = s.replace(p32(C_ADDR1), p32(addr1&0xFFFF),1)
+    return r.replace(p32(C_ADDR2), p32((addr2>>1)&0xFFFF))
 
 def stk_snippet(count):
     if count % 4:
