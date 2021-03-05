@@ -6,12 +6,13 @@ CC = x86_64-w64-mingw32-gcc
 
 all: $(TARGET)
 clean:
-	rm -f target.o $(TARGET)
+	rm -f $(OBJECTS) $(TARGET) $(SIGNEDTARGET)
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
-$(TARGET): target.o
+$(TARGET): $(OBJECTS)
 	rm -rf /home/user/proj/fuzz/vm_shared/target.sys
+	rm -rf /home/user/proj/fuzz/vm_shared/target.signed.sys
 	$(CC) $(CFLAGS) -Wl,--subsystem,native -Wl,--image-base,0x10000 \
 -Wl,--file-alignment,0x1000 -Wl,--section-alignment,0x1000 \
 -Wl,--entry,DriverEntry@8 -Wl,--stack,0x40000 -Wl,--dynamicbase -Wl,--nxcompat \

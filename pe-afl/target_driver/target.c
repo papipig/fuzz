@@ -29,6 +29,8 @@ NTSTATUS DispatchCreateClose(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 
 int global = 0;
 
+
+
 NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 {
 	UNREFERENCED_PARAMETER(pDevObj);
@@ -36,25 +38,57 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 	PIO_STACK_LOCATION stack = NULL;
 	UCHAR data[10] = {0};
 
+	PAGED_CODE();
+
 	stack = IoGetCurrentIrpStackLocation(pIrp);
 	code = stack->Parameters.DeviceIoControl.IoControlCode;
 	size = stack->Parameters.DeviceIoControl.InputBufferLength;
 	switch (code) {
 	case IOCTL_TARGET_SEND_DATA:
 		DbgPrint("[TARGET] Read memory: size %d\n", size);
-		if (size > 4) {
-			RtlCopyMemory((UCHAR*)data, (UCHAR*)pIrp->AssociatedIrp.SystemBuffer, size);
+
+		if (size >= 8) {
+			RtlCopyMemory((UCHAR*)data, (UCHAR*)pIrp->AssociatedIrp.SystemBuffer, 8);
 			if (data[0] == 'B') {
-				if (data[0] == 'L') {
-					if (data[0] == 'A') {
-						if (data[0] == 'H') {
-							DbgPrint("[TARGET] reached all code (%x)\n", global++);
+				if (data[1] == 'L') {
+					if (data[2] == 'A') {
+						if (data[3] == 'H') {
+							if (data[4] == 'B') {
+								if (data[5] == 'L') {
+									if (data[6] == 'A') {
+										if (data[7] == 'H') {
+											DbgPrint("[TARGET] reached all code #1 (%x)\n", global++);
+											//KeBugCheck(0xdeadbeef);
+										}
+									}
+								}
+							}
+						}
+					}
+				}	
+			}
+
+			if (data[0] == 'b') {
+				if (data[1] == 'l') {
+					if (data[2] == 'a') {
+						if (data[3] == 'h') {
+							if (data[4] == 'b') {
+								if (data[5] == 'l') {
+									if (data[6] == 'a') {
+										if (data[7] == 'h') {
+											DbgPrint("[TARGET] reached all code #2 (%x)\n", global++);
+											//KeBugCheck(0xdeadbeef);
+										}
+									}
+								}
+							}
 						}
 					}
 				}	
 			}
 
 		}
+
 		break;
 	default:
 		DbgPrint("[TARGET] Invalid IOCTL code: 0x%X\n", code);
