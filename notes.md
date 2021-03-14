@@ -152,4 +152,25 @@ The snippet has been recoded (64-bits code).
 
 64-bit code uses a lot of `rip`-relative addressing, whereas 32-bit code uses relocations.
 
+# Fuzzing setup
+
+## Compilation and instrumentation
+
+```
+make
+```
+
+Run `ida_dumper.py` on compiled `target.sys`. This will produce `target.sys.dump.txt`.
+
+```
+./pe-afl.py <path to>/target.sys <path to>/target.sys.dump.txt
+```
+
+Will produce : `target.instrumented.sys`. We need to sign it:
+
+```
+winsign -d sha256 <path to>/target.instrumented.sys <path to>/target.instrumented.signed.sys --certs cert/openssl.crt --key cert/openssl.key  -v
+```
+
+## Fuzzing
 

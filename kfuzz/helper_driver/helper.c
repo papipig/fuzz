@@ -486,11 +486,11 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 	switch (code) {
 	case IOCTL_HELPER_GET_SECTION_ADDRESS:
 
-		DbgPrint("Get Section Address: %ws\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
+		DbgPrint("Get Section Address: %s\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
 
 		CHAR name[MAX_PATH_LEN] = { 0 };
 		//RtlStringCchPrintfA(name, MAX_PATH_LEN, "%ws", pIrp->AssociatedIrp.SystemBuffer);
-		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%ws", pIrp->AssociatedIrp.SystemBuffer);
+		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%s", pIrp->AssociatedIrp.SystemBuffer);
 
 		ptrBaseAddr = KernelGetModuleBase(name);
 		DbgPrint("KernelGetModuleBase(%s) = %I64x\n", name, ptrBaseAddr);

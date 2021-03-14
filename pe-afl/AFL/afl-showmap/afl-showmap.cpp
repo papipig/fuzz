@@ -919,7 +919,7 @@ int main(int argc, char** argv) {
 
 	if (optind == argc || !out_file || !target_module) usage(argv[0]);
 
-	extract_client_params(argc, argv);
+	//extract_client_params(argc, argv);
 
 	setup_shm();
 	setup_watchdog_timer();
