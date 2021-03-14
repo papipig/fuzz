@@ -20,7 +20,6 @@ $(TARGET): $(OBJECTS)
 $(OBJECTS) -lntoskrnl -lhal
 	strip $(TARGET)
 	###../pe_nonpaged.py ${TARGET}
-	winsign -d sha256 ${TARGET} ${SIGNEDTARGET} --certs openssl.crt --key openssl.key  -v
-	cp ${SIGNEDTARGET} /home/user/proj/fuzz/vm_shared/target.signed.sys
-	cp ${TARGET} /home/user/proj/fuzz/vm_shared/target.sys
+	#winsign -d sha256 ${TARGET} ${SIGNEDTARGET} --certs openssl.crt --key openssl.key  -v ;
+	cp ${TARGET} /hdd/proj/fuzz/vm_shared/target.sys
 	

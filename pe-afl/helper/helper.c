@@ -131,6 +131,21 @@ typedef enum _SYSTEM_INFORMATION_CLASS {
 } SYSTEM_INFORMATION_CLASS, *PSYSTEM_INFORMATION_CLASS;
 
 typedef struct _SYSTEM_MODULE_ENTRY
+ {
+     HANDLE Section;
+     PVOID  MappedBase;
+     PVOID  ModuleBaseAddress;
+     ULONG  ImageSize;
+     ULONG  Flags;
+     USHORT LoadOrderIndex;
+     USHORT InitOrderIndex;
+     USHORT LoadCount;
+     USHORT ModuleNameOffset;
+     UCHAR  ModuleName[256];
+ } SYSTEM_MODULE_ENTRY, *PSYSTEM_MODULE_ENTRY;
+
+/*
+typedef struct _SYSTEM_MODULE_ENTRY
 {
 	ULONG  Unused;
 	ULONG  Always0;
@@ -142,6 +157,7 @@ typedef struct _SYSTEM_MODULE_ENTRY
 	USHORT ModuleNameOffset;
 	CHAR   ModuleName[256];
 } SYSTEM_MODULE_ENTRY, *PSYSTEM_MODULE_ENTRY;
+*/
 
 // Class 11
 typedef struct _SYSTEM_MODULE_INFORMATION_ENTRY
@@ -199,8 +215,9 @@ KernelGetModuleBase(
 		if (!pSystemInfoBuffer)
 			return NULL;
 
-		memset(pSystemInfoBuffer, 0, SystemInfoBufferSize * 2);
 
+		memset(pSystemInfoBuffer, 0, SystemInfoBufferSize * 2);
+		
 		status = ZwQuerySystemInformation(SystemModuleInformation,
 			pSystemInfoBuffer,
 			SystemInfoBufferSize * 2,
@@ -214,12 +231,17 @@ KernelGetModuleBase(
 
 			for (i = 0; i <((PSYSTEM_MODULE_INFORMATION)(pSystemInfoBuffer))->Count; i++)
 			{
+				/*
+				DbgPrint("[HELPER][KernelGetModuleBase] %I64X + %I64X\n", pSysModuleEntry[i].ModuleName, pSysModuleEntry[i].ModuleNameOffset);
+				DbgPrint("[HELPER][KernelGetModuleBase] %s\n", pSysModuleEntry[i].ModuleName + pSysModuleEntry[i].ModuleNameOffset);
+				*/
 				if (_stricmp(pSysModuleEntry[i].ModuleName +
 					pSysModuleEntry[i].ModuleNameOffset, pModuleName) == 0)
 				{
 					pModuleBase = pSysModuleEntry[i].ModuleBaseAddress;
 					break;
 				}
+
 			}
 		}
 
@@ -242,7 +264,7 @@ void Unload(PDRIVER_OBJECT pDrvObj)
 {
 	UNICODE_STRING usSymboName;
 
-	KdPrint(("helper driver unloaded !\n"));
+	DbgPrint("[HELPER] helper driver unloaded !\n");
 	RtlInitUnicodeString(&usSymboName, DEVICE_NAME);
 	IoDeleteSymbolicLink(&usSymboName);
 	if (pDrvObj->DeviceObject != NULL) {
@@ -372,7 +394,7 @@ NTSTATUS MapMemory(PVOID ulAddr, ULONG ulLen, PVOID *ptrBuffer, PMDL *ptrMdl)
 
 	*ptrMdl = IoAllocateMdl((PVOID)ulAddr, ulLen, FALSE, FALSE, NULL);
 	if (*ptrMdl == NULL) {
-		KdPrint(("IoAllocateMdl failed\n"));
+		DbgPrint("IoAllocateMdl failed\n");
 		return status;
 	}
 	else {
@@ -383,7 +405,7 @@ NTSTATUS MapMemory(PVOID ulAddr, ULONG ulLen, PVOID *ptrBuffer, PMDL *ptrMdl)
 			MmBuildMdlForNonPagedPool(*ptrMdl);
 			*ptrBuffer = MmMapLockedPagesSpecifyCache(*ptrMdl, UserMode, MmCached, NULL, FALSE, HighPagePriority);
 			if (*ptrBuffer == NULL) {
-				KdPrint(("MmMapLockedPagesSpecifyCache failed\n"));
+				DbgPrint("MmMapLockedPagesSpecifyCache failed\n");
 			}
 			return STATUS_SUCCESS;
 		}
@@ -463,13 +485,15 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 	code = stack->Parameters.DeviceIoControl.IoControlCode;
 	switch (code) {
 	case IOCTL_HELPER_GET_SECTION_ADDRESS:
-		KdPrint(("Get Section Address: %ws\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer));
+
+		DbgPrint("Get Section Address: %ws\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
 
 		CHAR name[MAX_PATH_LEN] = { 0 };
 		//RtlStringCchPrintfA(name, MAX_PATH_LEN, "%ws", pIrp->AssociatedIrp.SystemBuffer);
 		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%ws", pIrp->AssociatedIrp.SystemBuffer);
+
 		ptrBaseAddr = KernelGetModuleBase(name);
-		KdPrint(("KernelGetModuleBase(%s) = %X\n", name, ptrBaseAddr));
+		DbgPrint("KernelGetModuleBase(%s) = %I64x\n", name, ptrBaseAddr);
 
 		if (ptrBaseAddr && (((PUCHAR)ptrBaseAddr)[0] == 'M') && (((PUCHAR)ptrBaseAddr)[1] == 'Z')) {
 			IMAGE_DOS_HEADER *pDosHeader = (IMAGE_DOS_HEADER*)ptrBaseAddr;
@@ -481,25 +505,30 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 				RtlInitAnsiString(&secName, (PCSZ)sectionHeader->Name);
 				if (RtlCompareString(&secName, &cov, TRUE) == 0) {
 					ptrRetRVA = sectionHeader->VirtualAddress;
+
+					DbgPrint("------------------------------------------------------------------\n");
+					DbgPrint("Section Name = %s\n", sectionHeader->Name);
+					DbgPrint("Virtual Offset = %X\n", sectionHeader->VirtualAddress);
+					DbgPrint("Virtual Size = %X\n", sectionHeader->Misc.VirtualSize);
+					DbgPrint("Raw Offset = %X\n", sectionHeader->PointerToRawData);
+					DbgPrint("Raw Size = %X\n", sectionHeader->SizeOfRawData);
+					DbgPrint("Characteristics = %X\n", sectionHeader->Characteristics);
+					DbgPrint("------------------------------------------------------------------\n");
 				}
-				/*
-				KdPrint(("------------------------------------------------------------------\n"));
-				KdPrint(("Section Name = %s\n", sectionHeader->Name));
-				KdPrint(("Virtual Offset = %X\n", sectionHeader->VirtualAddress));
-				KdPrint(("Virtual Size = %X\n", sectionHeader->Misc.VirtualSize));
-				KdPrint(("Raw Offset = %X\n", sectionHeader->PointerToRawData));
-				KdPrint(("Raw Size = %X\n", sectionHeader->SizeOfRawData));
-				KdPrint(("Characteristics = %X\n", sectionHeader->Characteristics));
-				KdPrint(("------------------------------------------------------------------\n"));
-				*/
 				sectionHeader++;
 			}
 		}
-		if(ptrRetAddr) ptrRetAddr = ptrBaseAddr + ptrRetRVA;
-		KdPrint((".cov Address: 0x%X\n", ptrRetAddr));
+
+		if(ptrRetRVA) ptrRetAddr = ptrBaseAddr + ptrRetRVA;
 		*((PVOID*)pIrp->AssociatedIrp.SystemBuffer) = (ULONG *)ptrRetAddr;
 
-		len = sizeof(ULONG);
+		len = sizeof(ULONG *);
+
+		DbgPrint("[HELPER] .cov Address: 0x%I64X\n", ptrRetAddr);
+		DbgPrint("[HELPER] ptrRetAddr: 0x%I64X\n", ptrRetAddr);
+		DbgPrint("[HELPER] ptrBaseAddr: 0x%I64X\n", ptrBaseAddr);
+		DbgPrint("[HELPER] len : %d\n", len);
+
 		break;
 	case IOCTL_HELPER_READ_MEMORY:
 		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
@@ -513,7 +542,7 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 		break;
 	case IOCTL_HELPER_WRITE_MEMORY:
 		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		KdPrint(("Write memory: addr 0x%X, size %d\n", ptrBaseAddr, stack->Parameters.DeviceIoControl.InputBufferLength));
+		DbgPrint("Write memory: addr 0x%X, size %d\n", ptrBaseAddr, stack->Parameters.DeviceIoControl.InputBufferLength);
 		WriteMemory(ptrBaseAddr, (UCHAR*)pIrp->UserBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
 		len = 0;
 		break;
@@ -521,36 +550,38 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 		ptrType = *(ULONG*)pIrp->AssociatedIrp.SystemBuffer;
 		size = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer+1);
 		ptrTag = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer+2);
-		KdPrint(("Allocate memory: pooltype 0x%x, tag %X, size 0x%x\n", ptrType, ptrTag, size));
+		DbgPrint("Allocate memory: pooltype 0x%x, tag %X, size 0x%x\n", ptrType, ptrTag, size);
 		*((PVOID*)pIrp->AssociatedIrp.SystemBuffer) = (PVOID)ExAllocatePoolWithTag(ptrType, size, ptrTag);
-		len = sizeof(ULONG);
+		len = sizeof(ULONG *);
 		break;
 	case IOCTL_HELPER_FREE_MEMORY:
 		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
 		ptrTag = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer+1);
-		KdPrint(("free memory: tag %X, address 0x%x\n", ptrTag, ptrBaseAddr));
+		DbgPrint("free memory: tag %X, address 0x%I64X\n", ptrTag, ptrBaseAddr);
 		ExFreePoolWithTag((PVOID)ptrBaseAddr, ptrTag);
 		len = 0;
 		break;
 	case IOCTL_HELPER_MAP_MEMORY:
 		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		size = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer + 1);
-		KdPrint(("Kernel Address: 0x%X\n", ptrBaseAddr));
-		KdPrint(("Size: 0x%X\n", size));
+		size = (ULONG)*((PVOID*)pIrp->AssociatedIrp.SystemBuffer + 1);
+		DbgPrint("Kernel Address: 0x%I64X\n", ptrBaseAddr);
+		DbgPrint("Size: 0x%X\n", size);
+
 		NTSTATUS ns = MapMemory(ptrBaseAddr, size, (PVOID*)&ptrUserAddr, (PMDL*)&ptrMdl);
 		if (ns == STATUS_SUCCESS) {
-			KdPrint(("Mapped User Address: 0x%X\n", ptrUserAddr));
-			KdPrint(("MDL Address: 0x%X\n", ptrMdl));
+			DbgPrint("Mapped User Address: 0x%I64X\n", ptrUserAddr);
+			DbgPrint("MDL Address: 0x%I64X\n", ptrMdl);
 		}
+
 		*((PVOID*)pIrp->AssociatedIrp.SystemBuffer) = ptrUserAddr;
 		*((PVOID*)pIrp->AssociatedIrp.SystemBuffer+1) = ptrMdl;
-		len = sizeof(ULONG)*2;
+		len = sizeof(ULONG *)*2;
 		break;
 	case IOCTL_HELPER_UNMAP_MEMORY:
 		ptrUserAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
 		ptrMdl = *((PVOID*)pIrp->AssociatedIrp.SystemBuffer + 1);
-		KdPrint(("Unmapped User Address: 0x%X\n", ptrUserAddr));
-		KdPrint(("MDL Address: 0x%X\n", ptrMdl));
+		DbgPrint("Unmapped User Address: 0x%X\n", ptrUserAddr);
+		DbgPrint("MDL Address: 0x%X\n", ptrMdl);
 		UnmapMemory((PVOID)ptrUserAddr, (PMDL)ptrMdl);
 		len = 0;
 		break;
@@ -559,7 +590,7 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 		len = 0;
 		break;
 	default:
-		KdPrint(("Invalid IOCTL code: 0x%X\n", code));
+		DbgPrint("Invalid IOCTL code: 0x%X\n", code);
 		break;
 	}
 
@@ -576,7 +607,7 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDrvObj, PUNICODE_STRING pRegPath)
 	UNICODE_STRING usSymboName;
 	UNREFERENCED_PARAMETER(pRegPath);
 
-	KdPrint(("helper driver loaded\n"));
+	DbgPrint("[HELPER] helper driver loaded\n");
 	RtlInitUnicodeString(&usDeviceName, DRIVER_NAME);
 	IoCreateDevice(pDrvObj, 0, &usDeviceName, FILE_DEVICE_UNKNOWN, 0, FALSE, &pFunObj);
 	RtlInitUnicodeString(&usSymboName, DEVICE_NAME);

@@ -27,16 +27,18 @@ there is a problem executing it; or 0 if execution is successful.
 
 #define AFL_MAIN
 
+#define __x86_64__
+
 #include <windows.h>
 #include <stdarg.h>
 #include <io.h>
 #include <direct.h>
 
-#include "..\AFL\config.h"
-#include "..\AFL\types.h"
-#include "..\AFL\debug.h"
-#include "..\AFL\alloc-inl.h"
-#include "..\AFL\hash.h"
+#include "../AFL/config.h"
+#include "../AFL/types.h"
+#include "../AFL/debug.h"
+#include "../AFL/alloc-inl.h"
+#include "../AFL/hash.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -194,7 +196,7 @@ static void setup_shm(void) {
 
 		shm_str = (char *)alloc_printf("afl_shm_%s", fuzzer_id);
 
-		shm_handle = CreateFileMapping(
+		shm_handle = CreateFileMappingA(
 			INVALID_HANDLE_VALUE,    // use paging file
 			NULL,                    // default security
 			PAGE_READWRITE,          // read/write access
@@ -216,6 +218,8 @@ static void setup_shm(void) {
 			}
 		}
 
+		printf("CreateFileMapping succeeded with name %s\n", shm_str);
+
 		// We found a section name that works!
 		break;
 	}
@@ -224,6 +228,7 @@ static void setup_shm(void) {
 		FATAL("Could not find a section name.\n");
 	}
 
+	printf("env: %s:%s\n", SHM_ENV_VAR, shm_str);
 	_putenv_s(SHM_ENV_VAR, shm_str);
 
 	atexit(remove_shm);
@@ -301,7 +306,7 @@ static u32 write_results(void) {
 				fprintf(f, "%u%u\n", trace_bits[i], i);
 
 			}
-			else fprintf(f, "%06u:%u\n", i, trace_bits[i]);
+			else fprintf(f, "%06x:%u\n", i, trace_bits[i]);
 
 		}
 
@@ -412,7 +417,7 @@ static void create_target_process(char** argv) {
 
 	pipe_name = (char *)alloc_printf("\\\\.\\pipe\\afl_pipe_%s", fuzzer_id);
 
-	pipe_handle = CreateNamedPipe(
+	pipe_handle = CreateNamedPipeA(
 		pipe_name,				// pipe name
 		PIPE_ACCESS_DUPLEX,     // read/write access
 		0,						// blocking
@@ -525,7 +530,7 @@ static void setup_watchdog_timer() {
 
 static void run_target(char** argv) {
 
-	char command[] = "R";
+	char command = 'R';
 	DWORD num_read;
 	char result = 0;
 
@@ -542,10 +547,14 @@ static void run_target(char** argv) {
 
 	WriteFile(
 		pipe_handle,  // handle to pipe 
-		command,      // buffer to write from 
+		&command,     // buffer to write from 
 		1,            // number of bytes to write 
 		&num_read,    // number of bytes written 
 		NULL);        // not overlapped I/O 
+
+	if (num_read != 1) {
+		SAYF(cLRD "\nWriteFile error on pipe\n" cRST);
+	}
 
 	watchdog_timeout_time = get_cur_time() + exec_tmout;
 
@@ -561,12 +570,7 @@ static void run_target(char** argv) {
 
 	MEM_BARRIER();
 
-#ifdef __x86_64__
-	classify_counts((u64*)trace_bits);
-#else
 	classify_counts((u8*)trace_bits);
-#endif /* ^__x86_64__ */
-
 
 	if (!quiet_mode)
 		SAYF(cRST "-- Program output ends --\n");

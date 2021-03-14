@@ -1,9 +1,5 @@
 # TODO
 
-updated pefile.py
-0x111E8 : lea -> string "[TARGET]..." that was not modified
-Entry point / DriverEntry should be 0x1941C (instead of 0x1835C)
-
 # Lab setup
 
 ## VM setup
@@ -145,3 +141,15 @@ basic blocks 		bb : [ x1, x2, x3, ... ]
 relative jumps		relative : {a : [b, 'e8', 4, 5], ...}
 					@a, there is a 0xe8 + rel32 that points to b
 					a has to be in bb list
+
+## alf-pe.py
+
+The snippet has been recoded (64-bits code).
+
+### parse_relative
+
+`parse_relative` has been completely recoded
+
+64-bit code uses a lot of `rip`-relative addressing, whereas 32-bit code uses relocations.
+
+

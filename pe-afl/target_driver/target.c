@@ -45,8 +45,6 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 	size = stack->Parameters.DeviceIoControl.InputBufferLength;
 	switch (code) {
 	case IOCTL_TARGET_SEND_DATA:
-		DbgPrint("[TARGET] Read memory: size %d\n", size);
-
 		if (size >= 8) {
 			RtlCopyMemory((UCHAR*)data, (UCHAR*)pIrp->AssociatedIrp.SystemBuffer, 8);
 			if (data[0] == 'B') {
@@ -108,7 +106,6 @@ NTSTATUS DriverEntry(PDRIVER_OBJECT pDrvObj, PUNICODE_STRING pRegPath)
 	UNICODE_STRING usSymboName;
 	UNREFERENCED_PARAMETER(pRegPath);
 
-	KdPrint("[TARGET] target driver loaded\n");
 	DbgPrint("[TARGET] target driver loaded\n");
 
 	RtlInitUnicodeString(&usDeviceName, DRIVER_NAME);

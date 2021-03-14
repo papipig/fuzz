@@ -660,10 +660,11 @@ def process_pe():
             addr = ofs2rva(v) + s.sec_diff + get_text_diff(v)
             addr -= len(injected[v].exp)
 
-            print ("@0x{:x}    0x{:x}/0x{:x}       ".format(update_addr(v) ,afl_area_ptr, afl_prev_loc))
+            print ("@0x{:x}    0x{:x}/0x{:x}  ({})   0x{:x}   ".format(update_addr(v) ,afl_area_ptr, afl_prev_loc, len(injected[v].align), (rr[0]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[0]+args.snip_reloc[0]))))
             for i in range(len(m)):
                 #### 64 bits: relative addresses from RIP
-                injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]-(update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i])))
+                injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i])))
+                print (" ... 0x{:05x}".format((rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i]))))
 
                 #### 32 bits: Virtual addresses
                 ####injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i] + pe.OPTIONAL_HEADER.ImageBase))

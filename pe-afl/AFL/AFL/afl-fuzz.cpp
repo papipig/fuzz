@@ -21,6 +21,8 @@ how they affect the execution path.
 #define AFL_MAIN
 #define MESSAGES_TO_STDOUT
 
+#define __x86_64__
+
 #define _GNU_SOURCE
 #define _FILE_OFFSET_BITS 64
 
@@ -1369,7 +1371,7 @@ EXP_ST void setup_shm(void) {
 
 		shm_str = (char *)alloc_printf("afl_shm_%s", fuzzer_id);
 
-		shm_handle = CreateFileMapping(
+		shm_handle = CreateFileMappingA(
 			INVALID_HANDLE_VALUE,    // use paging file
 			NULL,                    // default security
 			PAGE_READWRITE,          // read/write access

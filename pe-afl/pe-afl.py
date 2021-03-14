@@ -30,9 +30,9 @@ M_PREV_LOC1, M_PREV_LOC2, M_ID, M_AREA_PTR, M_CALLBACK, MAGIC = [0x55555555]*6
 
 snip = {}
 def init_snip():
+    snip['nop'] = b'\x90'*0x24
+    
     if instrument.is_32():
-        snip['nop'] = b'\x90'*0x24
-
         snip['single'] = asm('''
     push ebx
     push eax
