@@ -57,6 +57,9 @@ static char mode = 0;
 static char *ioctl_endpoint = NULL;
 static int ioctl_code = 0;
 
+void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name);
+void process_ioctl(char *at_file);
+
 static s32 child_pid;                 /* PID of the tested program         */
 static HANDLE child_handle,
               child_thread_handle;

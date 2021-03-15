@@ -48,6 +48,9 @@ static char *ioctl_endpoint = NULL;
 static int ioctl_code = 0;
 static char *target_module;
 
+void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name);
+void process_ioctl(char *at_file);
+
 
 #define VERSION "2.43b"
 #define WINAFL_VERSION "1.16b"
@@ -2124,10 +2127,11 @@ static void destroy_extras(void) {
    In essence, the instrumentation allows us to skip execve(), and just keep
    cloning a stopped child. So, we just execute once, and then send commands
    through a pipe. The other part of this logic is in afl-as.h. */
-
+/*
 static void init_forkserver(char** argv) {
   //not implemented on Windows
 }
+*/
 
 //quoting on Windows is weird
 size_t ArgvQuote(char *in, char *out) {
@@ -2217,6 +2221,7 @@ char *argv_to_cmd(char** argv) {
 }
 
 /*Initialazing overlapped structure and connecting*/
+/*
 static BOOL OverlappedConnectNamedPipe(HANDLE pipe_h, LPOVERLAPPED overlapped)
 {
 	ZeroMemory(overlapped, sizeof(*overlapped));
@@ -2252,7 +2257,6 @@ static BOOL OverlappedConnectNamedPipe(HANDLE pipe_h, LPOVERLAPPED overlapped)
 	}
 }
 
-/*
 static void create_target_process(char** argv) {
   char *cmd;
 //  char *pipe_name;
@@ -2608,6 +2612,7 @@ char *get_test_case(long *fsize)
 }
 
 /* This function is used to call user-defined server routine to send data back into sample */
+/*
 static int process_test_case_into_dll(int fuzz_iterations)
 {
   int result;
@@ -2615,7 +2620,7 @@ static int process_test_case_into_dll(int fuzz_iterations)
 
   char *buf = get_test_case(&fsize);
 
-  result = dll_run_ptr(buf, fsize, fuzz_iterations); /* caller should copy the buffer */
+  result = dll_run_ptr(buf, fsize, fuzz_iterations); // caller should copy the buffer
 
   free(buf);
 
@@ -2624,14 +2629,33 @@ static int process_test_case_into_dll(int fuzz_iterations)
 
   return 1;
 }
+*/
 
 /* Execute target application, monitoring for timeouts. Return status
    information. The called program will update trace_bits[]. */
 
 static u8 run_target(char** argv, u32 timeout) {
-  //SAYF("run_target() called (%s)\n", out_file);
+  total_execs++;
+
+  child_timed_out = 0;
+  memset(trace_bits, 0, MAP_SIZE);
+  MemoryBarrier();
+
+  if (fuzz_iterations_current == 0 && init_tmout != 0) {
+    watchdog_timeout_time = get_cur_time() + init_tmout;
+  }
+  else {
+    watchdog_timeout_time = get_cur_time() + timeout;
+  }
+  watchdog_enabled = 1;
+
 
   process_ioctl(out_file);
+
+  classify_counts((u64*)trace_bits);
+//  fuzz_iterations_current++;
+
+
 //  SAYF("done\n");
   return 0;
 }
@@ -7095,11 +7119,13 @@ static void sync_fuzzers(char** argv) {
 
 /* Handle skip request (SIGUSR1). */
 
+/*
 static void handle_skipreq(int sig) {
 
   skip_requested = 1;
 
 }
+*/
 
 /* Handle timeout (SIGALRM). */
 
@@ -7604,10 +7630,11 @@ static void fix_up_sync(void) {
 
 
 /* Handle screen resize (SIGWINCH). */
-
+/*
 static void handle_resize(int sig) {
   clear_screen = 1;
 }
+*/
 
 
 /* Check ASAN options. */
@@ -8201,7 +8228,8 @@ int main(int argc, char** argv) {
 
   save_cmdline(argc, argv);
 
-//  fix_up_banner(argv[optind]);
+  //fix_up_banner(argv[optind]);
+  fix_up_banner(target_module);
 
   check_if_tty();
 
@@ -8276,16 +8304,11 @@ int main(int argc, char** argv) {
 
   while (1) {
 
-    SAYF("LOOP\n");
-
     u8 skipped_fuzz;
 
     cull_queue();
 
-    SAYF("LOOP1\n");
-
     if (!queue_cur) {
-    SAYF("LOOP10\n");
 
       queue_cycle++;
       current_entry     = 0;
@@ -8298,14 +8321,13 @@ int main(int argc, char** argv) {
         queue_cur = queue_cur->next;
       }
 
-SAYF("LOOP11\n");
       show_stats();
-SAYF("LOOP12\n");
+
       if (not_on_tty) {
         ACTF("Entering queue cycle %llu.", queue_cycle);
         fflush(stdout);
       }
-SAYF("LOOP13\n");
+
       /* If we had a full queue cycle with no new finds, try
          recombination strategies next. */
 
@@ -8323,14 +8345,14 @@ SAYF("LOOP13\n");
     }
 
     skipped_fuzz = fuzz_one(use_argv);
-SAYF("LOOP2\n");
+
     if (!stop_soon && sync_id && !skipped_fuzz) {
       
       if (!(sync_interval_cnt++ % SYNC_INTERVAL))
         sync_fuzzers(use_argv);
 
     }
-SAYF("LOOP3\n");
+
     if (stop_soon) break;
 
     queue_cur = queue_cur->next;

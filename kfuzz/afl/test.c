@@ -148,7 +148,7 @@ DWORD sendIoctl(HANDLE hDev, DWORD iocode, PVOID inbuf, DWORD inlen, PVOID outbu
 	}
 	
 	if (inbuf) {
-		LOG(_T("Sending ioctl %#.8x\n"), iocode);
+		//LOG(_T("Sending ioctl %#.8x\n"), iocode);
 		bResult = DeviceIoControl(hDev, iocode, inbuf, inlen, outbuf, outlen, &bytesreturned, NULL);
 		error = bResult ? ERROR_SUCCESS : GetLastError();
 		bSent = TRUE;
@@ -156,7 +156,7 @@ DWORD sendIoctl(HANDLE hDev, DWORD iocode, PVOID inbuf, DWORD inlen, PVOID outbu
 
 	if (bSent) {
 		if (error == ERROR_SUCCESS) {
-			LOG(_T("IOCTL completed SUCCESSFULLY, returned %u bytes\n"), bytesreturned);
+			//LOG(_T("IOCTL completed SUCCESSFULLY, returned %u bytes\n"), bytesreturned);
 		}
 		else {
 			// Verbose error
