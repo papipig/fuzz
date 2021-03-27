@@ -8,6 +8,10 @@ import math
 import sys
 import os
 import re
+from progressbar import * 
+import traceback
+
+widgets = ['Progress: ', Percentage(), ' ', Bar(marker='#',left='[',right=']'), ' ', ETA()] #see docs for other options
 
 pe=None
 args=None
@@ -41,13 +45,16 @@ get_sec_by_rva = lambda v: pe.get_section_by_rva(v)
 get_sec_by_va = lambda v: pe.get_section_by_rva(v-pe.OPTIONAL_HEADER.ImageBase)
 
 class RELA:
-    def __init__(self, target, op, opnd, tlen):
+    def __init__(self, target, op, imm, opnd, tlen):
         self.target = target
         self.op = op 
-        self.opnd = opnd 
+        self.imm = imm
+        self.opnd = opnd
+#        if self.opnd == 0:
+#            assert False, "should not happen 0x{:x} {} {} {} {} {}".format(target, op, imm, oplen, tlen, len(op))
         self.tlen = tlen
     def __str__(self):
-        return str([hex(self.target), self.op, self.opnd, self.tlen])
+        return str([hex(self.target), self.op, self.imm, self.opnd, self.tlen])
 
 class CODE:
     def __init__(self, va, exp, align, code, tlen):
@@ -101,12 +108,13 @@ def get_last(seq, val):
     return seq[bisect.bisect_right(seq, val) - 1]
 
 injected = {}
-def inject_code(addr, code=b'', expand=b''):
+def inject_code(addr, code=b'', expand=b'', verbose=False):
     # expand is a partial operand for expanding from short jump to long jump
     v,s = va2ofs(addr), get_sec_by_va(addr)
-    assert is_exe(s), 'v is out of .text'
+    assert is_exe(s), 'v is out of executable section'
 
-#    print ("injecting code  @0x{:x} code={} expand={}".format(addr, code, expand))
+    if verbose:
+        print ("injecting code  @0x{:x} code={} expand={} ***********************".format(addr, code, expand))
 
     # instrument with word-aligned
     align = b''
@@ -116,6 +124,8 @@ def inject_code(addr, code=b'', expand=b''):
         align = b'\x90' * (len(expand)%2)
 
     if v in injected:
+        if verbose:
+            print ("v in injected")
         i = injected[v]
         i.exp = expand
         i.align = align
@@ -123,7 +133,12 @@ def inject_code(addr, code=b'', expand=b''):
         i.code = code + i.code
         i.tlen = len(i.code + i.exp + i.align)
     else:
+        if verbose:
+            print ("v NOT in injected 0x{:x} (OFS 0x{:x})  {}  {}  {} ({})".format(addr, v, expand, align, code, len(expand+code+align)))
         injected[v] = CODE(*[addr, expand, align, code, len(expand+code+align)])
+        if verbose:
+            if v in injected:
+                print ("now, v (0x{:x}) is in injected expand = {}".format(v, expand))
         # for optimization
         if not hasattr(s, 'addr_set'):
             s.addr_set = []
@@ -157,30 +172,50 @@ def get_last_section(type):
     elif type == 'tbl':
         return tbl
 
-def get_text_diff(fa):
-    s = get_sec_by_ofs(fa)
-    diff = 0
+def get_text_diff_by_rva(rva, verbose=False):
+    s = get_sec_by_rva(rva)
+    ofs = rva2ofs(rva)
+    diff = 0 #(0 - ofs)
 
-    assert s != None, "no section for {:x}".format(fa)
+    assert s != None, "get_text_diff_by_rva: no section for RVA 0x{:x}".format(rva)
 
-    try:
-        if fa in s.addr_map:
-            diff = s.addr_map[fa].diff-fa
+    if rva == 0x0008A160 or rva == 0x3000:
+        verbose = True
+        #traceback.print_stack(file=sys.stdout)
+
+    if verbose:
+        print ('=========================================================================')
+        print ('get_text_diff_by_rva: {}'.format(s.Name.strip(b'\x00')))
+        print ('                    : rva = 0x{:x}, ofs = 0x{:x}'.format(rva, ofs))
+
+    if hasattr(s, 'addr_map'):
+        if ofs in s.addr_map:
+            diff = s.addr_map[ofs].diff - ofs
+            if verbose:
+                print ("                    : OFS 0x{:x} IS IN s.addr_map".format(ofs))
+                print ("                    : s.addr_map[ofs] = 0x{:x}, diff = 0x{:x}".format(s.addr_map[ofs].diff, diff))
         else:
-            last_old = get_last(s.addr_set, fa)
+            last_old = get_last(s.addr_set, ofs)
+            if verbose:
+                print ("                    : OFS 0x{:x} is NOT in s.addr_map".format(ofs))
+                print ("                    : last_old = 0x{:x}".format(last_old))
+                print ("                    : s.addr_map[last_old].diff = 0x{:x}".format(s.addr_map[last_old].diff))
+                print ("                    : s.a.addr_map[last_old].code_len = 0x{:x}".format(s.addr_map[last_old].code_len))
             if last_old:
                 diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len
-        return diff
-    except:
-        return 0
-
+    elif verbose:
+        print ('                    : no addr_map in section {}'.format(s.Name.strip(b'\x00')))
+    
+    if verbose:
+        print ("                    : diff = 0x{:x}".format(diff))
+    return diff
 
 def get_data_diff(fa):
     s = get_sec_by_ofs(fa)
     diff = 0
     last_old = get_last(s.addr_set, fa)
     if last_old:
-        diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len
+        diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len # CHANGED THIS
     return diff
 
 def new_reloc_entry(addr, type):
@@ -303,7 +338,8 @@ def update_and_verify_section_table():
     s.next_section_virtual_address = s.VirtualAddress+s.Misc_VirtualSize
     return old_reloc_size
 
-def get_relative_diff(from_fa, to_fa):
+# fa = RVA
+def get_relative_diff(from_fa, to_fa, verbose=False):
 #      get_relati     +----------------+
 #           |                v           I = injected
 #     +---+-+-+              +---+---+   C = original code
@@ -312,46 +348,76 @@ def get_relative_diff(from_fa, to_fa):
 #     ^                            |
 #     +----------------------------+
     from_s = get_sec_by_rva(from_fa)
-    to_s = get_sec_by_rva(to_fa)
-    if from_s != to_s:
-        # for inter-section
-        diff = (to_fa+get_text_diff(to_fa)-to_s.VirtualAddress) - (from_fa+get_text_diff(from_fa)-from_s.VirtualAddress)
-###        diff = (to_fa+get_text_diff(to_fa)-to_s.PointerToRawData) - (from_fa+get_text_diff(from_fa)-from_s.PointerToRawData)
-        if from_fa in from_s.addr_set:
-            diff -= from_s.addr_map[from_fa].code_len
-        
-        if hasattr(to_s, 'sec_diff'):
-            to_s_diff = to_s.sec_diff
-        else:
-            to_s_diff = 0
+    
+    from_ofs = rva2ofs(from_fa)
+    to_ofs = rva2ofs(to_fa)
+
+    if verbose:
+        print ('*** OFF: 0x{:x} 0x{:x}     RVA: 0x{:x} 0x{:x}'.format(from_ofs, to_ofs, from_fa, to_fa))
+
+    if to_fa == 0:
+        diff = 0 - (from_fa+get_text_diff_by_rva(from_fa)-from_s.VirtualAddress)
+        #if from_fa in from_s.addr_set:
+            #diff -= from_s.addr_map[from_fa].code_len
+        if from_ofs in from_s.addr_set:
+            diff -= from_s.addr_map[from_ofs].code_len
         if hasattr(from_s, 'sec_diff'):
             from_s_diff = from_s.sec_diff
         else:
             from_s_diff = 0
-
-        sec_diff = (to_s.VirtualAddress+to_s_diff) - (from_s.VirtualAddress+from_s_diff)
+        sec_diff = 0 - (from_s.VirtualAddress+from_s_diff)
         return from_fa + diff + sec_diff
 
+    else:
+        to_s = get_sec_by_rva(to_fa)
+        if from_s != to_s:
+            # for inter-section
+            diff = (to_fa+get_text_diff_by_rva(to_fa)-to_s.VirtualAddress) - (from_fa+get_text_diff_by_rva(from_fa)-from_s.VirtualAddress)
+    ###        diff = (to_fa+get_text_diff(to_fa)-to_s.PointerToRawData) - (from_fa+get_text_diff(from_fa)-from_s.PointerToRawData)
+#            if from_fa in from_s.addr_set:
+#                diff -= from_s.addr_map[from_fa].code_len
+            if from_ofs in from_s.addr_set:
+                diff -= from_s.addr_map[from_ofs].code_len
+
+            if hasattr(to_s, 'sec_diff'):
+                to_s_diff = to_s.sec_diff
+            else:
+                to_s_diff = 0
+            if hasattr(from_s, 'sec_diff'):
+                from_s_diff = from_s.sec_diff
+            else:
+                from_s_diff = 0
+
+            sec_diff = (to_s.VirtualAddress+to_s_diff) - (from_s.VirtualAddress+from_s_diff)
+            return from_fa + diff + sec_diff
 
     # for intra-section
-    diff = get_text_diff(to_fa) - get_text_diff(from_fa)
-    if from_fa in from_s.addr_set:
-        diff -= from_s.addr_map[from_fa].code_len
+    diff = get_text_diff_by_rva(to_fa, verbose=verbose) - get_text_diff_by_rva(from_fa, verbose=verbose)
+    if verbose:
+            print ('    diff_by_rva(from_fa = 0x{:x}) = 0x{:x}'.format(from_fa, get_text_diff_by_rva(from_fa)))
+            print ('    diff_by_rva(to_fa   = 0x{:x}) = 0x{:x}'.format(to_fa, get_text_diff_by_rva(to_fa)))
+            print ('    diff: 0x{:x}'.format(diff))
+            for x in from_s.addr_set:
+                print (hex(x))
+    if from_ofs in from_s.addr_set:
+        diff -= from_s.addr_map[from_ofs].code_len
+        if verbose:
+            print (' *** diff: 0x{:x}'.format(diff))
     return to_fa + diff
 
-def update_instr(op, operand_len, v):
+def update_instr(op, operand_len, v, imm):
     assert check32(v), 'v is out of range'
 
     if -0x80 <= v < 0x80:
         if operand_len != 1:
             # instruction will not be shorter
-            return expand_instr(op, v)
+            return expand_instr(op, v, imm)
         else:
-            return op + "{:02x}".format(v&0xFF)
+            return op + "{:02x}".format(v&0xFF) # no imm anyway
     else:
-        return expand_instr(op, v)
+        return expand_instr(op, v, imm)
 
-def expand_instr(op, v):
+def expand_instr(op, v, imm):
     assert check32(v), 'v is out of range'
     dword = lambda v: p32(v&0xFFFFFFFF).hex()
     mpx = ''
@@ -361,20 +427,58 @@ def expand_instr(op, v):
         raise "Should not happen"
 
     supported = [
+                   '48ff15',     # call [rel32]
                    'ff15',     # call [rel32]
                     'ff25',     # jmp [rel32]
                     '8b05',     # mov eax, [rel32]
                     '8b0d',     # mov ecx, [rel32]
                     '8b15',     # mov edx, [rel32]
+                    '483b05',   # cmp rax, [rel32]
+                    '483b0d',   # cmp rcx, [rel32]
+                    
+                    '488905',   # mov [rel32], rax
+
                     '488b05',   # mov rax, [rel32]
                     '488b0d',   # mov rcx, [rel32]
                     '488b15',   # mov rdx, [rel32]
-                    '488b05',   # lea rax, rel32
+                    '488d05',   # lea rax, rel32
                     '488d0d',   # lea rcx, rel32
                     '488d15',   # lea rdx, rel32
+                    '488d1d',   # lea rbx, rel32
+                    '488d35',   # lea rsi, rel32
+
+                    '4c8b05',   # mov r8, rel32
+                    '4c8b0d',   # mov r9, rel32
+
+                    '4c8d05',   # lea r8, rel32
+                    '4c8d0d',   # lea r9, rel32
+                    '4c8d15',   # lea r10, rel32
+                    '4c8d1d',   # lea r11, rel32
+                    '4c8d25',   # lea r12, rel32
+                    '4c8d2d',   # lea r13, rel32
+                    '4c8d35',   # lea r10, rel32
+                    '4c8d3d',   # lea r15, rel32                    
                     '8905',     # mov [rel32], eax
                     '890d',     # mov [rel32], ecx
                     '8915',     # mov [rel32], edx
+
+                    #'48833d',   # mov [rel32], 
+                    '48893d',   # mov [rel32], rdi
+
+                    '48ff25',   # jmp [rel32]
+
+                    '0fb705',   # movzx eax, [rel32]
+                    '0fb715',   # movzx edx, [rel32]
+
+                    '0f1005',   # movups  xmm0, xmmword [rel32]
+                    '0f100d',   # movups  xmm1, xmmword [rel32]
+
+                    '6644890d'  # mov word [rel32], r9w
+    ]
+
+    supported_imm = [
+                    '48833d', # cmp byte [rel32] + imm8
+                    'f605',   # test byte [rel32] + imm8
     ]
 
     if op == 'e2':              		    # loop rel8
@@ -394,8 +498,11 @@ def expand_instr(op, v):
     elif op[:3] == '0f8':                           # jxx rel32
         return mpx + op + dword(v)
     else:
-        assert op in supported
-        return op + dword(v)
+        if op in supported:
+            return op + dword(v)
+        if op in supported_imm:
+            return op + dword(v) + imm
+        assert False, "operand not in list : {}, v = {} / {}".format(op, dword(v), (imm))
 
 def seh_padding():
     # SEHandlerTable have to align with 4-byte
@@ -451,9 +558,9 @@ def pdata_update():
     return
 
 def update_addr(addr):
-    v,s = rva2ofs(addr), get_sec_by_rva(addr)
+    s = get_sec_by_rva(addr)
     if hasattr(s, 'sec_diff'):
-        return addr + s.sec_diff + get_text_diff(v)
+        return addr + s.sec_diff + get_text_diff_by_rva(addr)
     else:
         return addr
 
@@ -531,7 +638,10 @@ def process_pe():
             setattr(sec, 'sec_diff', s.VirtualAddress - sec.VirtualAddress)
             setattr(sec, 'addr_map', {})
 
-    s = get_sec_by_name(b'.bss')
+    try:
+        s = get_sec_by_name(b'.bss')
+    except:
+        s = get_sec_by_name(b'.data')
     #assert not is_driver(pe.path) or s.Characteristics & pefile.SECTION_CHARACTERISTICS['IMAGE_SCN_MEM_NOT_PAGED'], 'any non page memory ?'
     if hasattr(args, 'pe_afl'):
         #dup_sec(s, name=b'.cov', size=0x10fff))
@@ -541,42 +651,135 @@ def process_pe():
     #assert cut_reloc_size == 0
 
     # update relative address
-    print('expanding relative ...')
+    print('loading relative ...')
     jmp_map = {}
     relative = {}
-    for k in sorted(ida['relative']):
+
+    pbar = ProgressBar(widgets=widgets, maxval=len(ida['relative']))
+    pbar.start()
+
+    for index, k in enumerate(sorted(ida['relative'])):
         relative[k] = RELA(*ida['relative'][k])
-    for k in sorted(relative):
-        #print ("@0x{:x} ...... {}".format(k, relative[k].opnd))
+        pbar.update(index)
+    pbar.finish()
+    print
+
+    print('building jump map ...')
+    pbar = ProgressBar(widgets=widgets, maxval=len(relative))
+    pbar.start()
+
+    '''
+        builds jmp_map
+
+        iterate through all relatives (k)
+
+        jmp_map[i] = [ x1, x2, ... , xi_n ], x_j are VAs
+
+            i is a VA between VA k and VA target(k)
+
+            x in jmp_map[i] <=> VA x is an instruction using a relative address that goes over VA i
+
+            ex: 
+            0x10112233 lea rax, [0x10112255]
+
+            jmp_map[0x10112233] = [0x10112233]
+            jmp_map[0x10112234] = [0x10112233]
+            [...]
+            jmp_map[0x10112255] = [0x10112233]
+
+    '''
+    for index, k in enumerate(sorted(relative)):
+        pbar.update(index)
+
         if relative[k].opnd == 1: # short jmp
             order = -1 if k>relative[k].target else 1
-            for i in range(k, relative[k].target+order, order):
-                if order == 1 and (i == k or i == relative[k].target):
-                    continue
+
+            if k == 0x014008A160:
+                print ("")
+                print ("@ 0x{:x} ...... {}".format(k, relative[k].opnd))
+                print ("@ 0x{:x} ...... {}-{}-{}".format(k, relative[k].op, relative[k].imm, relative[k].opnd))
+                print (order)
+                print (i == k ) #HERE
+                print (i == relative[k].target)
+                '''
                 if i not in jmp_map:
                     jmp_map[i] = [k]
                 else:
                     jmp_map[i].append(k)
-    
-    #print ("Jump map is: {}".format(jmp_map))
+                '''
 
+            for i in range(k, relative[k].target+order, order):
+                ''' CHANGED THIS
+                if order == 1 and (i == k or i == relative[k].target):
+                    continue
+                '''
+                if i not in jmp_map:
+                    jmp_map[i] = [k]
+                else:
+                    jmp_map[i].append(k)
+    pbar.finish()
+    print
+    print ("Jump map len is: {}".format(len(jmp_map)))
+
+    print ("building expand list")
     expand_list = []
-    for i in injected:
+    pbar = ProgressBar(widgets=widgets, maxval=len(injected))
+    pbar.start()
+
+    '''
+        builds expand_list
+        list of every relative instruction VA that has to be modified due to injected code
+    '''
+    for index, i in enumerate(injected):
         if injected[i].va in jmp_map:
             expand_list += jmp_map[injected[i].va]
-    expand_list = list(set(expand_list))
-    for i in expand_list:
+        pbar.update(index)
+    pbar.finish()
+    print
+
+    print ("adding jump map to expand list...")
+    expand_list = list(set(expand_list)) # no dupes
+
+    pbar = ProgressBar(widgets=widgets, maxval=len(expand_list))
+    pbar.start()
+
+    for index, i in enumerate(expand_list):
+        if i == 0x014008A177:
+            print
+            print (hex(jmp_map[i][0]))
+            #raise
         if i not in jmp_map:
             continue
         for j in jmp_map[i]:
             if j not in expand_list:
                 expand_list.append(j)
-    for k in expand_list:
+        pbar.update(index)
+    pbar.finish()
+    print
+
+    print ("expanding...")
+    pbar = ProgressBar(widgets=widgets, maxval=len(expand_list))
+    pbar.start()
+
+    '''
+        Extend short jumps from this list to long jumps (not always necessary, but simpler way to do this)
+    '''
+    for index, k in enumerate(expand_list):
+
         cmd_len = relative[k].tlen
-        e = int(len(expand_instr(relative[k].op, 0))/2-cmd_len)
+        e = int(len(expand_instr(relative[k].op, 0, b''))/2-cmd_len)
         # the expanded byte is stored in the next instruction
-        #print ("expanding {} bytes @0x{:x} cmd_len={}".format(e, k, cmd_len))
-        inject_code(k+cmd_len, expand=b'\x01'*e)
+        if k == 0x014008A177:
+            print (" ********************************************************** ")
+            print (" expanding {} bytes @ 0x{:x} cmd_len={}".format(e, k, cmd_len))
+            inject_code(k+cmd_len, expand=b'\x01'*e, verbose=True)
+        else:
+            inject_code(k+cmd_len, expand=b'\x01'*e)
+
+        pbar.update(index)
+    pbar.finish()
+    print
+
     print('expanded %d of %d branches ' % (len(expand_list), len(relative)))
 
     build_map()
@@ -585,30 +788,70 @@ def process_pe():
     print('updating relative ...')
 #   for i in injected:
 #        print ("0x{:x} -> {}".format(i, injected[i]))
+
+    # TODO: jump tables !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     for k in sorted(relative):
+        if k == 0x140085c3e:
+            continue
         #print ("Relative: k = 0x{:x}, target = 0x{:x}".format(k, relative[k].target))
         from_ofs = va2ofs(k)
         from_rva = va2rva(k)
         to_rva = va2rva(relative[k].target)
-#        print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
+        if (to_rva < 0): 
+            print ('VA 0x{:x} {} => VA 0x{:x} (RVA 0x{:x})'.format(k, relative[k].op, relative[k].target, to_rva))
+            assert len(relative[k].op)/2 == 4
+            continue
+
+        #print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
+
+        '''       
+        if k == 0x014008A177:
+            delta_rva = get_relative_diff(from_rva, to_rva, verbose = True)
+            rva = k - 0x140000000
+            s = get_sec_by_rva(rva)
+            print (s)
+            print ('    [update relative]', hex(k), hex(relative[k].target), hex(to_rva), hex(delta_rva), str(relative[k].tlen))
+            print ('    from_rva = 0x{:x}'.format(from_rva))
+            print ('    to_rva = 0x{:x}'.format(to_rva))
+            print ('    delta_rva = 0x{:x}'.format(delta_rva))
+            print ('    delta_rva-rva = 0x{:x}'.format(delta_rva-rva))
+            print ('    text diff DST 0x{:x} => 0x{:x}'.format(relative[k].target, get_text_diff_by_rva(relative[k].target - 0x140000000)))
+            print ('    get_text_diff_by_rva(0x{:x}) = 0x{:x}'.format((rva), get_text_diff_by_rva(rva)))
+            print ('    delta = 0x{:x}'.format(get_text_diff_by_rva(relative[k].target - 0x140000000) - get_text_diff_by_rva(rva)))
+            print ('    0x{:x}'.format(delta_rva-(from_rva+cmd_len+expand_len)))
+            assert s != None
+        else:
+
+        '''
         delta_rva = get_relative_diff(from_rva, to_rva)
-#        print ('delta_rva = 0x{:}'.format(delta_rva))
-        LOG('[update relative]', hex(k), hex(relative[k].target), hex(to_rva), hex(delta_rva), str(relative[k].tlen))
+
         cmd_len = relative[k].tlen
         expand_len = 0
 
         # next_ofs is the offset to next instruction or data
         next_ofs = va2ofs(k+cmd_len)
+
+        if k == 0x140085e03:
+            print ("next_ofs = 0x{:x}".format(next_ofs))
+
+        #if next_ofs == 0x2805:
+        #    print (injected[0x2805])
         if next_ofs in injected:
-#            print ("next_ofs 0x{:x} in injected".format(next_ofs))
+            if next_ofs == 0x2803 or next_ofs == 0x2805:
+                print ("next_ofs 0x{:x} in injected".format(next_ofs))
+                print ("expand_len = {}".format(expand_len))
             expand_len = len(injected[next_ofs].exp)
+                
         else:
 #            print ("next_ofs 0x{:x} NOT in injected".format(next_ofs))
             pass
         #print ("0x{:x}".format(delta_rva-(from_rva+cmd_len+expand_len)))
-        instr = bytes.fromhex(update_instr(relative[k].op, relative[k].opnd+expand_len, delta_rva-(from_rva+cmd_len+expand_len)))
+
+        instr = bytes.fromhex(update_instr(relative[k].op, relative[k].opnd+expand_len, delta_rva-(from_rva+cmd_len+expand_len), relative[k].imm))
 #        print ("new instruction: {}".format(instr.hex()))
-        assert len(instr) == cmd_len + expand_len
+
+        assert len(instr) == cmd_len + expand_len, "0x{:x} 0x{:x} 0x{:x} @ 0x{:x}".format(len(instr), cmd_len , expand_len, k)
+
         if instr[cmd_len:] != b'': # update expand
             injected[next_ofs].exp = instr[cmd_len:]
         s = get_sec_by_ofs(from_ofs)
@@ -657,14 +900,14 @@ def process_pe():
                 continue
             m = [i + len(injected[v].exp + injected[v].align) for i in args.snip_reloc]
             s = get_sec_by_ofs(v)
-            addr = ofs2rva(v) + s.sec_diff + get_text_diff(v)
+            addr = ofs2rva(v) + s.sec_diff + get_text_diff_by_rva(ofs2rva(v))
             addr -= len(injected[v].exp)
 
-            print ("@0x{:x}    0x{:x}/0x{:x}  ({})   0x{:x}   ".format(update_addr(v) ,afl_area_ptr, afl_prev_loc, len(injected[v].align), (rr[0]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[0]+args.snip_reloc[0]))))
+            #print ("@0x{:x}    0x{:x}/0x{:x}  ({})   0x{:x}   ".format(update_addr(v) ,afl_area_ptr, afl_prev_loc, len(injected[v].align), (rr[0]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[0]+args.snip_reloc[0]))))
             for i in range(len(m)):
                 #### 64 bits: relative addresses from RIP
                 injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i])))
-                print (" ... 0x{:05x}".format((rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i]))))
+             #   print (" ... 0x{:05x}".format((rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i]))))
 
                 #### 32 bits: Virtual addresses
                 ####injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i] + pe.OPTIONAL_HEADER.ImageBase))
@@ -751,11 +994,23 @@ def process_pe():
         print ("0x{:x} => 0x{:x} ({})".format(a, get_text_diff(a),get_text_diff(a)))
     '''
 
+    print('   AddressOfEntryPoint='+hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
+
+    addr = pe.OPTIONAL_HEADER.AddressOfEntryPoint
+    s = get_sec_by_rva(addr)
+    print ("get_sec_by_rva(0x{:x})".format(addr))
+    print(s)
+    if hasattr(s, 'sec_diff'):
+        print ("has attr sec_diff: 0x{:x}".format(s.sec_diff))
+        print ("get_text_diff_by_rva(0x{:x}) = 0x{:x}".format(addr, get_text_diff_by_rva(addr)))
+    else:
+        assert False, "wtf"
+
     pe.OPTIONAL_HEADER.AddressOfEntryPoint = update_addr(pe.OPTIONAL_HEADER.AddressOfEntryPoint)
 
-    LOG('SizeOfImage='+hex(pe.OPTIONAL_HEADER.SizeOfImage))
-    LOG('NumberOfSections='+hex(pe.FILE_HEADER.NumberOfSections))
-    LOG('AddressOfEntryPoint='+hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
+    print('   SizeOfImage='+hex(pe.OPTIONAL_HEADER.SizeOfImage))
+    #print('   NumberOfSections='+hex(pe.FILE_HEADER.NumberOfSections))
+    print('   AddressOfEntryPoint='+hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
     # clear Bound Import Directory in order to get more space for new section
     d = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_BOUND_IMPORT']]
     d.VirtualAddress = 0

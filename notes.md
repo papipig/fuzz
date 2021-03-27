@@ -142,9 +142,23 @@ relative jumps		relative : {a : [b, 'e8', 4, 5], ...}
 					@a, there is a 0xe8 + rel32 that points to b
 					a has to be in bb list
 
-## alf-pe.py
+TODO: fix jump tables
+
+
+## pe-afl.py / instrument.py
 
 The snippet has been recoded (64-bits code).
+
+### how does it work?
+
+1. Goes through basic blocks, and run `inject_code` on each block. This populates `injected` indexed with *offsets* (not RVA). Adds a `addr_set` for each section, containing *offsets* within section where code is inserted
+2. builds `jmp_map`. VA `x` is in `jmp_map[i]` <=> VA `x` is an instruction using a relative address that goes over VA `i`
+3. builds `expand_list` i.e list of every relative instruction VA that has to be modified due to injected code (should be named : altered_list, because not all will be extended)
+4. Extend short jumps from this list to long jumps (not always necessary, but simpler way to do this), with `expand_instr` then `inject_code`
+5. Runs `build_map` that creates a map for each section. `s.addr_map[offset]` contains `diff` + instruction length.
+6. updates `pdata` section (pointers to code stuffs)
+7. 
+ 
 
 ### parse_relative
 

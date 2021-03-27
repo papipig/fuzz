@@ -20,90 +20,143 @@ endian = "big" if is_be else "little"
 
 print ('[INFO] Processor: {}, {}bit, {} endian'.format(info.procName, bits, endian))
 
+
+def check_jumptable(ea):
+    comment = idaapi.get_cmt(ea, 0)
+    if comment != None:
+        if "jump table for switch statement" in comment:
+            ###print ("jump table: 0x{:x}".format(ea))
+            jmptables[ea] = ItemSize(ea)
+
+
 def parse_relative(ea):
-	buf = idc.GetManyBytes(ea, ItemSize(ea))
+    buf = idc.GetManyBytes(ea, ItemSize(ea))
 
-	op1type = idc.GetOpType(ea, 0)
-	op2type = idc.GetOpType(ea, 1)
+    op1type = idc.GetOpType(ea, 0)
+    op2type = idc.GetOpType(ea, 1)
 
-	'''
-	idaapi.o_void      # No Operand                           ----------
-	idaapi.o_reg       # General Register (al,ax,es,ds...)    reg
-	idaapi.o_mem       # Direct Memory Reference  (DATA)      addr
-	idaapi.o_phrase    # Memory Ref [Base Reg + Index Reg]    phrase
-	idaapi.o_displ     # Memory Reg [Base Reg + Index Reg + Displacement] phrase+addr
-	idaapi.o_imm       # Immediate Value                      value
-	idaapi.o_far       # Immediate Far Address  (CODE)        addr
-	idaapi.o_near      # Immediate Near Address (CODE)        addr
-	'''
+    imm = ''
 
-	addr_optype = [	idaapi.o_near,
-					idaapi.o_far,
-					idaapi.o_mem
-					]
-
-	if op1type in addr_optype and op2type in addr_optype:
-		raise '[ERR] several relative operands @', H(ea)
-		
-	if op1type in addr_optype:
-		n_op = 0
-	elif op2type in addr_optype:
-		n_op = 1
-	else:
-		return None, None, None
-
-	SetColor(ea, CIC_ITEM, 0xffd0d0)		
-
-	# get len of operand
-	if ItemSize(ea) == 2:
-		l = 1
-	else:
-		l = 4
-
-	return buf[:-l], buf[-l:], n_op
+    SetColor(ea,  CIC_ITEM, 0xffffff)
 
 
+    '''
+    idaapi.o_void      # No Operand                           ---------- (0)
+    idaapi.o_reg       # General Register (al,ax,es,ds...)    reg (1)
+    idaapi.o_mem       # Direct Memory Reference  (DATA)      addr (2)
+    idaapi.o_phrase    # Memory Ref [Base Reg + Index Reg]    o_phrase (3)
+    idaapi.o_displ     # Memory Reg [Base Reg + Index Reg + Displacement] phrase+addr (4)
+    idaapi.o_imm       # Immediate Value                      value (5)
+    idaapi.o_far       # Immediate Far Address  (CODE)        addr (6)
+    idaapi.o_near      # Immediate Near Address (CODE)        addr (7)
+    '''
+
+    addr_optype = [    idaapi.o_near, # 7
+                    idaapi.o_far,     # 6
+                    idaapi.o_mem,     # 2
+                    ]
+    
+#    if op1type == idaapi.o_reg and op2type == idaapi.o_phrase:
+
+    if op1type in addr_optype and op2type in addr_optype:
+        raise '[ERR] several relative operands @', H(ea)
+    
+    if op1type in addr_optype:
+        # first operand
+        n_op = 0
+    elif op2type in addr_optype:
+        # second operand
+        n_op = 1
+    else:
+        return None, None, None, None
+
+    '''
+        some PEs make use of their base address somehow, don't mess with this
+    '''
+    if idc.GetOperandValue(ea, n_op) == idaapi.get_imagebase():
+        #print ("Ignored image base {:x}".format(ea))
+        return None, None, None, None
+
+    '''
+        detects when LEA is used for computation
+        ex: lea     rax, ds:8[rax*8]
+    '''
+    if idc.GetOperandValue(ea, n_op) < idaapi.get_imagebase() and idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] == 'lea':
+        # lea only can lead to a 'false relative' when used for arithmetics
+        ##print ("False relative {:x}   (0x{:x})".format(ea, idc.GetOperandValue(ea, n_op)))
+        return None, None, None, None
+
+    '''
+        instructions using imm as second operand have a final byte/dw after rel32...
+    '''
 
 
-	idx = 0
-	mpx_candidate = False
+    SetColor(ea, CIC_ITEM, 0xd0ffd0)        
 
-	# call (e8), http://x86.renejeschke.de/html/file_module_x86_id_26.html
-	# jmp (eb/e9), http://x86.renejeschke.de/html/file_module_x86_id_147.html
-	# jxx (0F 80/0F 81/0F 82/0F 83/0F 84/0F 85/0F 86/0F 87/0F 88/0F 89/0F 8A/0F 8B/0F 8C/0F 8D/0F 8E/0F 8F/70/71/72/73/74/75/76/77/78/79/7A/7B/7C/7D/7E/7F), http://x86.renejeschke.de/html/file_module_x86_id_146.html
-	# jcxz/jecxz (67 e3/e3)
-	# loop/loope/loopz/loopne/loopnz (e0/e1/e2), http://x86.renejeschke.de/html/file_module_x86_id_161.html
-	'''
-	if ord(buf[idx]) == 0xf2:
-		idx += 1
-		mpx_candidate = True
+    l_imm = None
+    if op2type == idaapi.o_imm:
+        print ("IMMEDIATE @ 0x{:x}  ({}) len = {}".format(ea, op2type, len(buf)))
+        if len(buf) >= 10:
+            # dword immediate
+            l_imm = 4
+        else:
+            # byte immediate
+            l_imm = 1
+        
+    # get len of operand
+    if ItemSize(ea) == 2:
+        l = 1
+    else:
+        l = 4
 
-	if ord(buf[idx]) in [0xe0, 0xe1, 0xe2, 0xe3, 0xe8, 0xe9, 0xeb]:
-		idx += 1
-	elif ord(buf[idx]) == 0x0f and (ord(buf[idx+1]) >= 0x80 and ord(buf[idx+1]) <= 0x8f):
-		idx += 2
-	elif (ord(buf[idx]) >= 0x70 and ord(buf[idx]) <= 0x7f):
-		idx += 1
-	elif ord(buf[idx]) == 0x67 and ord(buf[idx+1]) == 0xe3:
-		idx += 2
+    if l_imm != None:
+        return buf[:-(l+l_imm)], buf[-(l+l_imm):-l_imm], n_op, buf[-l_imm:]
+    else:
+        return buf[:-l], buf[-l:], n_op, b''
 
-	if mpx_candidate and idx == 1:
-		idx = 0
+    idx = 0
+    mpx_candidate = False
 
-	if idx:
-#		SetColor(ea, CIC_ITEM, 0xd0ffd0)
-		return buf[0:idx], buf[idx:]
-	else:
-		return None, None
-	'''
+    # call (e8), http://x86.renejeschke.de/html/file_module_x86_id_26.html
+    # jmp (eb/e9), http://x86.renejeschke.de/html/file_module_x86_id_147.html
+    # jxx (0F 80/0F 81/0F 82/0F 83/0F 84/0F 85/0F 86/0F 87/0F 88/0F 89/0F 8A/0F 8B/0F 8C/0F 8D/0F 8E/0F 8F/70/71/72/73/74/75/76/77/78/79/7A/7B/7C/7D/7E/7F), http://x86.renejeschke.de/html/file_module_x86_id_146.html
+    # jcxz/jecxz (67 e3/e3)
+    # loop/loope/loopz/loopne/loopnz (e0/e1/e2), http://x86.renejeschke.de/html/file_module_x86_id_161.html
+    '''
+    if ord(buf[idx]) == 0xf2:
+        idx += 1
+        mpx_candidate = True
+
+    if ord(buf[idx]) in [0xe0, 0xe1, 0xe2, 0xe3, 0xe8, 0xe9, 0xeb]:
+        idx += 1
+    elif ord(buf[idx]) == 0x0f and (ord(buf[idx+1]) >= 0x80 and ord(buf[idx+1]) <= 0x8f):
+        idx += 2
+    elif (ord(buf[idx]) >= 0x70 and ord(buf[idx]) <= 0x7f):
+        idx += 1
+    elif ord(buf[idx]) == 0x67 and ord(buf[idx+1]) == 0xe3:
+        idx += 2
+
+    if mpx_candidate and idx == 1:
+        idx = 0
+
+    if idx:
+#        SetColor(ea, CIC_ITEM, 0xd0ffd0)
+        return buf[0:idx], buf[idx:]
+    else:
+        return None, None
+    '''
 
 def add_relative(ea):
     # need operand length, so parse it manually
-    op, operand, n_op = parse_relative(ea)
+    op, operand, n_op, imm = parse_relative(ea)
     if op and operand:
         #assert len(idc.GetOpnd(ea, 1)) == 0, 'more than 1 operand'
         assert len(operand) == 1 or len(operand) == 4, 'operand is not rel32'
-        relative[ea] = [idc.GetOperandValue(ea,n_op), op.encode('hex'), len(operand), len(op+operand)]
+        relative[ea] = [idc.GetOperandValue(ea,n_op), op.encode('hex'), imm.encode('hex'), len(operand), len(op+operand+imm)]
+        ###relative[ea] = [idc.GetOperandValue(ea,n_op), op.encode('hex'), len(operand), len(op+operand)]
+        if ea == 0x140006aa1:
+            print (relative[ea])
+
 
 possible_data = []
 def add_basic_block(ea):
@@ -203,8 +256,8 @@ def add_rip_relative_inst(head):
     # TODO, 64-bit use rip-relative rather than relocation
 
 def output_file():
-    ida_dump = {'bb': bb, 'relative': relative, 'rip_inst': rip_inst, 'idata': idata, 'stk_frame': stk_frame, 'code_loc': code_loc}
-    print (ida_dump)
+    ida_dump = {'jmptables': jmptables, 'bb': bb, 'relative': relative, 'rip_inst': rip_inst, 'idata': idata, 'stk_frame': stk_frame, 'code_loc': code_loc}
+    #print (ida_dump)
 
     print '[INFO]', str(len(bb)), 'blocks'
     print '[INFO]', str(len(relative)), 'branches'
@@ -239,9 +292,10 @@ def process(text):
     code_start = None
     for h in Heads(text, SegEnd(text)):
         check_unicode(h)
+        check_jumptable(h)
         if isCode(GetFlags(h)):
             if not code_start:
-            	code_start = h
+                code_start = h
             if bits == '32':
                 check_stack_frame32(h)
             elif bits == '64':
@@ -267,6 +321,7 @@ def process(text):
 Wait()
 bb = []
 relative = {}
+jmptables = {}
 rip_inst = []
 idata = []
 stk_frame = {}

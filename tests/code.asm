@@ -1,4 +1,6 @@
 
+    mov byte [C], 0x32
+
 
     push rax
     push rbx

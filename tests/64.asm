@@ -1,6 +1,9 @@
 BITS 64
 
+    mov byte [C], 0x32
 
+
+    test qword [rel C], 0x1122334455667788
     push rax
     push rbx
     push rcx
