@@ -40,6 +40,10 @@ def parse_relative(ea):
     SetColor(ea,  CIC_ITEM, 0xffffff)
 
 
+    if (ord(buf[0]) == 0x48 and ord(buf[1]) == 0xA1) or (ord(buf[0]) == 0xA1):
+        # absolute MOV
+        return None, None, None, None
+
     '''
     idaapi.o_void      # No Operand                           ---------- (0)
     idaapi.o_reg       # General Register (al,ax,es,ds...)    reg (1)
@@ -56,8 +60,6 @@ def parse_relative(ea):
                     idaapi.o_mem,     # 2
                     ]
     
-#    if op1type == idaapi.o_reg and op2type == idaapi.o_phrase:
-
     if op1type in addr_optype and op2type in addr_optype:
         raise '[ERR] several relative operands @', H(ea)
     

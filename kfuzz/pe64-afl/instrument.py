@@ -179,9 +179,11 @@ def get_text_diff_by_rva(rva, verbose=False):
 
     assert s != None, "get_text_diff_by_rva: no section for RVA 0x{:x}".format(rva)
 
+    '''
     if rva == 0x0008A160 or rva == 0x3000:
         verbose = True
         #traceback.print_stack(file=sys.stdout)
+    '''
 
     if verbose:
         print ('=========================================================================')
@@ -210,13 +212,21 @@ def get_text_diff_by_rva(rva, verbose=False):
         print ("                    : diff = 0x{:x}".format(diff))
     return diff
 
-def get_data_diff(fa):
-    s = get_sec_by_ofs(fa)
+def get_data_diff_by_rva(fa):
+    s = get_sec_by_rva(fa)
     diff = 0
-    last_old = get_last(s.addr_set, fa)
-    if last_old:
-        diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len # CHANGED THIS
+
+    if s == None:
+        assert "Should not happen"
+    
+    if hasattr(s, 'addr_set'):
+        last_old = get_last(s.addr_set, rva2ofs(fa))
+        if last_old:
+            diff = s.addr_map[last_old].diff - last_old + s.addr_map[last_old].code_len
+    
     return diff
+
+
 
 def new_reloc_entry(addr, type):
     entry = pefile.Structure(pe.__IMAGE_BASE_RELOCATION_ENTRY_format__)
@@ -245,12 +255,12 @@ def add_to_reloc(addr, type):
     entries.append(new_reloc_entry(addr, type))
     updated_reloc.append(pefile.BaseRelocationData(struct = s, entries = entries))
 
-''' x64
+
 def write_reloc():
     #IMAGE_REL_BASED_ABSOLUTE        No operation relocation. Used for padding.
     #IMAGE_REL_BASED_HIGHLOW         Add the delta between the ImageBase and the allocated memory block to the 32 bits found at the offset. 
+    #IMAGE_REL_BASED_DIR64           Add the delta between the ImageBase and the allocated memory block to the 64 bits found at the offset. 
     updated_reloc.sort(key=lambda x: x.struct.VirtualAddress)
-
     # append IMAGE_REL_BASED_ABSOLUTE for padding
     for x in updated_reloc:
         if (x.struct.SizeOfBlock/2)%2:
@@ -260,28 +270,37 @@ def write_reloc():
     def debug_reloc(r):
         LOG('[debug_reloc]')
         for base_reloc in r:
+            print ("-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-")
             LOG('\n'.join(base_reloc.struct.dump()))
             for reloc in base_reloc.entries:
-                LOG('%08Xh %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]))
+                LOG('0x%08X %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]))
     if args.verbose:
         debug_reloc(updated_reloc)
 
-    reloc = get_sec_by_name('.reloc')
+    reloc = get_sec_by_name(b'.reloc')
     ofs = reloc.PointerToRawData
     end = ofs + reloc.SizeOfRawData     # end is file aligned
-    update_reloc_raw = ''
+    update_reloc_raw = b''
     for base_reloc in updated_reloc:
         d = p32(base_reloc.struct.VirtualAddress) + p32(base_reloc.struct.SizeOfBlock)
+        print ("--------------------------------------------")
+        print (hex(base_reloc.struct.VirtualAddress))
+        print (d)
+        print (update_reloc_raw)
         update_reloc_raw += d
         for rr in base_reloc.entries:
+            print (' ... 0x{:x}'.format(rr.struct.Data))
             d = p16(rr.struct.Data)
             update_reloc_raw += d
 
-    d = pe.get_directory_by_name('IMAGE_DIRECTORY_ENTRY_BASERELOC')
+    d = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_BASERELOC']]
     d.Size = len(update_reloc_raw)
     d.VirtualAddress = reloc.VirtualAddress
     update_reloc_raw += b'\x00'*(0x200-len(update_reloc_raw)%0x200) 	# padding
     reloc.Misc_VirtualSize = reloc.SizeOfRawData = len(update_reloc_raw)
+    
+    reloc.raw = p32(4) + update_reloc_raw
+
     return update_reloc_raw
 
 def update_reloc_raw(type, raw, v):
@@ -294,21 +313,40 @@ def update_reloc_raw(type, raw, v):
             if va2ofs(addr) in injected:
                 last = get_last(code_loc, addr)
                 if last and last <= addr < ida['code_loc'][last]:
-                    diff3 = get_text_diff(va2ofs(addr))
+                    diff3 = get_text_diff_by_rva(addr)
                 else:
-                    diff3 = get_data_diff(va2ofs(addr))
+                    diff3 = get_data_diff_by_rva(addr)
             else:
-                diff3 = get_data_diff(va2ofs(addr))
+                diff3 = get_data_diff_by_rva(addr)
             vv = addr + s.sec_diff + diff3
             assert check32(vv), 'vv is out of range'
             return strrep(raw, v, p32(vv))
         else:
             return raw
     elif type == pefile.RELOCATION_TYPE['IMAGE_REL_BASED_DIR64']:
-        assert False, 'TODO'
+
+        # need to patch QWORD (VA) @ v
+
+        addr = u64(raw[v:v+8])
+        print ("======================")
+        print (hex(addr))
+        # use rva rather than offset here, due to some undefined data between data sections
+        s = pe.get_section_by_rva(addr-pe.OPTIONAL_HEADER.ImageBase)
+
+        if is_exe(s): # and not in_range(va2ofs(addr), ida['idata']):
+            diff3 = get_text_diff_by_rva(addr-pe.OPTIONAL_HEADER.ImageBase)
+            vv = addr + s.sec_diff + diff3
+            return strrep(raw, v, p64(vv))
+        else:
+            if hasattr(s, 'sec_diff'):
+                vv = addr + s.sec_diff + get_data_diff_by_rva(addr-pe.OPTIONAL_HEADER.ImageBase)
+            else:
+                vv = addr + get_data_diff_by_rva(addr-pe.OPTIONAL_HEADER.ImageBase)
+            print ("PATCHING @ OFS 0x{:x} with: 0x{:x}".format(v, vv))
+            return strrep(raw, v, p64(vv))
     else:
         assert False, 'TODO'
-'''
+
 
 def update_and_verify_section_table():
     # update .reloc in section table
@@ -421,10 +459,12 @@ def expand_instr(op, v, imm):
     assert check32(v), 'v is out of range'
     dword = lambda v: p32(v&0xFFFFFFFF).hex()
     mpx = ''
+    '''
     if op.startswith('f2'):
         mpx = 'f2'
+        #assert False, "Should not happen {}".format(op)
         op = op[2:]
-        raise "Should not happen"
+    ''' 
 
     supported = [
                    '48ff15',     # call [rel32]
@@ -441,14 +481,25 @@ def expand_instr(op, v, imm):
                     '488b05',   # mov rax, [rel32]
                     '488b0d',   # mov rcx, [rel32]
                     '488b15',   # mov rdx, [rel32]
+                    '488b1d',   # mov rbx, [rel32]
+
+                    '488905',   # mov [rel32], rax
+                    '48890d',   # mov [rel32], rcx
+                    '488915',   # mov [rel32], rdx
+                    '48891d',   # mov [rel32], rbx
+
                     '488d05',   # lea rax, rel32
                     '488d0d',   # lea rcx, rel32
                     '488d15',   # lea rdx, rel32
                     '488d1d',   # lea rbx, rel32
                     '488d35',   # lea rsi, rel32
 
+                    '4c8905',   # mov rel32, r8
+
                     '4c8b05',   # mov r8, rel32
                     '4c8b0d',   # mov r9, rel32
+
+                    '48870d',   # xchg rcx,[rel32]
 
                     '4c8d05',   # lea r8, rel32
                     '4c8d0d',   # lea r9, rel32
@@ -471,14 +522,21 @@ def expand_instr(op, v, imm):
                     '0fb715',   # movzx edx, [rel32]
 
                     '0f1005',   # movups  xmm0, xmmword [rel32]
+                    '0f1105',   # movups oword [rel32], xmm0
+                    'f20f1105', # movsd qword [rel32], xmm0
                     '0f100d',   # movups  xmm1, xmmword [rel32]
 
-                    '6644890d'  # mov word [rel32], r9w
+                    '6644890d', # mov word [rel32], r9w
+                    '668935',   # mov word [rel32], si
+                    '0f2905',   # movaps oword [rel32],xmm0
+                    '0f290d',   # movaps oword [rel32],xmm1
     ]
 
     supported_imm = [
-                    '48833d', # cmp byte [rel32] + imm8
-                    'f605',   # test byte [rel32] + imm8
+                    '48833d',   # cmp byte [rel32] + imm8
+                    '833d',     # cmp byte [rel32] + imm8
+                    'f605',     # test byte [rel32] + imm8
+                    'c705',     # mov [rel32] + imm32
     ]
 
     if op == 'e2':              		    # loop rel8
@@ -511,10 +569,10 @@ def seh_padding():
 
     d = pe.OPTIONAL_HEADER.DATA_DIRECTORY[pefile.DIRECTORY_ENTRY['IMAGE_DIRECTORY_ENTRY_LOAD_CONFIG']]
 
-    ofs = va2ofs(d.VirtualAddress+pe.OPTIONAL_HEADER.ImageBase)
+    ofs = rva2ofs(d.VirtualAddress)
     if not hasattr(get_sec_by_ofs(ofs), 'addr_set'):
         return is_padded
-    delta = get_data_diff(ofs) % 4
+    delta = get_data_diff_by_rva(d.VirtualAddress) % 4
     if delta:
         is_padded = True
         LOG('[seh_padding]', hex(d.VirtualAddress+pe.OPTIONAL_HEADER.ImageBase))
@@ -569,7 +627,6 @@ def config_cov_sec(s):
     s.PointerToRawData = 0
     s.SizeOfRawData = 0
     LOG('configured section {}'.format(s.Name.strip(b'\x00')))
-    print (s)
     return s
 
 
@@ -595,7 +652,6 @@ def dup_sec(sec, name=None, size=0):
     pe.__structures__.append(s)
     pe.sections.append(s)
     print('added section', s.Name.strip(b'\x00'))
-    print(str(s))
     return s
 
 def build_text_raw():
@@ -627,8 +683,8 @@ def process_pe():
     # update section table
     # add new section entry, size of new section is affected by args.enlarge
 ### TODO: check this
-###    assert '.reloc' in pe.sections[-1].Name, '.reloc is not at the end'
-###    assert pe.get_length() == get_last_section('fa'), 'overlays is behind PE'
+    assert b'.reloc' in pe.sections[-1].Name, '.reloc is not at the end'
+    #assert pe.get_length() == get_last_section('fa'), 'overlays is behind PE'
     for sec in sorted(pe.sections, key=lambda s: s.PointerToRawData):
         if is_exe(sec):
             # empty inject is for triggering the data update later
@@ -694,7 +750,7 @@ def process_pe():
         if relative[k].opnd == 1: # short jmp
             order = -1 if k>relative[k].target else 1
 
-            if k == 0x014008A160:
+            if k == 0x015008A160:
                 print ("")
                 print ("@ 0x{:x} ...... {}".format(k, relative[k].opnd))
                 print ("@ 0x{:x} ...... {}-{}-{}".format(k, relative[k].op, relative[k].imm, relative[k].opnd))
@@ -744,7 +800,7 @@ def process_pe():
     pbar.start()
 
     for index, i in enumerate(expand_list):
-        if i == 0x014008A177:
+        if i == 0x01400A00BF:
             print
             print (hex(jmp_map[i][0]))
             #raise
@@ -769,7 +825,7 @@ def process_pe():
         cmd_len = relative[k].tlen
         e = int(len(expand_instr(relative[k].op, 0, b''))/2-cmd_len)
         # the expanded byte is stored in the next instruction
-        if k == 0x014008A177:
+        if k == 0x01400A00BF:
             print (" ********************************************************** ")
             print (" expanding {} bytes @ 0x{:x} cmd_len={}".format(e, k, cmd_len))
             inject_code(k+cmd_len, expand=b'\x01'*e, verbose=True)
@@ -804,12 +860,10 @@ def process_pe():
 
         #print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
 
-        '''       
-        if k == 0x014008A177:
+        if k == 0x1400A00BF:
             delta_rva = get_relative_diff(from_rva, to_rva, verbose = True)
             rva = k - 0x140000000
             s = get_sec_by_rva(rva)
-            print (s)
             print ('    [update relative]', hex(k), hex(relative[k].target), hex(to_rva), hex(delta_rva), str(relative[k].tlen))
             print ('    from_rva = 0x{:x}'.format(from_rva))
             print ('    to_rva = 0x{:x}'.format(to_rva))
@@ -820,9 +874,7 @@ def process_pe():
             print ('    delta = 0x{:x}'.format(get_text_diff_by_rva(relative[k].target - 0x140000000) - get_text_diff_by_rva(rva)))
             print ('    0x{:x}'.format(delta_rva-(from_rva+cmd_len+expand_len)))
             assert s != None
-        else:
 
-        '''
         delta_rva = get_relative_diff(from_rva, to_rva)
 
         cmd_len = relative[k].tlen
@@ -831,7 +883,7 @@ def process_pe():
         # next_ofs is the offset to next instruction or data
         next_ofs = va2ofs(k+cmd_len)
 
-        if k == 0x140085e03:
+        if k == 0x1400A00BF:
             print ("next_ofs = 0x{:x}".format(next_ofs))
 
         #if next_ofs == 0x2805:
@@ -858,18 +910,23 @@ def process_pe():
         s.raw = strrep(s.raw, from_ofs, instr[:cmd_len])
 
     # update .reloc entry
-    '''
-    TODO: reloc in x64?
     print('updating relocation ...')
+
     for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+
+        for k in base_reloc.entries:
+            print ("reloc: 0x{:x} ({})".format(k.rva, k.type))
+
+
         for reloc in base_reloc.entries:
             if reloc.type == pefile.RELOCATION_TYPE['IMAGE_REL_BASED_ABSOLUTE']:
                 continue
 
             v,s = rva2ofs(reloc.rva), get_sec_by_rva(reloc.rva)
+            print ("reloc offset: 0x{:x} in section {}".format(v, s.Name.strip(b'\x00')))
             if is_exe(s) and not in_range(v, ida['idata']):
                 # assume that all relocation are data here
-                diff2 = get_data_diff(v)
+                diff2 = get_data_diff_by_rva(reloc.rva)
                 LOG('[update reloc] %08Xh %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]) + ', diff2 = ' + hex(diff2))
                 add_to_reloc(reloc.rva + s.sec_diff + diff2, reloc.type)
                 s.raw = update_reloc_raw(reloc.type, s.raw, v)
@@ -879,11 +936,13 @@ def process_pe():
                 if not hasattr(s, 'raw'):
                     setattr(s, 'raw', p32(s.PointerToRawData) + b'\x00'*(s.PointerToRawData-4) + s.get_data()) # give a padding
                 s.raw = update_reloc_raw(reloc.type, s.raw, v)
-    '''
 
-    # add and update reloc from injected
+    write_reloc()
+
+
+    # patching code with relative adresses (not reloc like in 32 bits)
     if hasattr(args, 'pe_afl') and not args.nop:
-        print('updating relocation in instrumented code ...')
+        print('patching instrumented code ...')
         t = pefile.RELOCATION_TYPE['IMAGE_REL_BASED_HIGHLOW'] if is_32() else pefile.RELOCATION_TYPE['IMAGE_REL_BASED_DIR64']
         afl_area_ptr = get_sec_by_name(b'.cov').VirtualAddress
         afl_prev_loc = afl_area_ptr + 0x10000
@@ -906,16 +965,12 @@ def process_pe():
             #print ("@0x{:x}    0x{:x}/0x{:x}  ({})   0x{:x}   ".format(update_addr(v) ,afl_area_ptr, afl_prev_loc, len(injected[v].align), (rr[0]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[0]+args.snip_reloc[0]))))
             for i in range(len(m)):
                 #### 64 bits: relative addresses from RIP
-                injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i])))
+                injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i]-(len(injected[v].align)+update_addr(ofs2rva(v))+args.snip_sizes[i]+args.snip_reloc[i])))
              #   print (" ... 0x{:05x}".format((rr[i]-(len(injected[v].align)+update_addr(v)+args.snip_sizes[i]+args.snip_reloc[i]))))
 
                 #### 32 bits: Virtual addresses
                 ####injected[v].code = strrep(injected[v].code, args.snip_reloc[i], p32(rr[i] + pe.OPTIONAL_HEADER.ImageBase))
-                add_to_reloc(addr + m[i], t)
-    '''
-    append_reloc = write_reloc()
-    '''
-
+                #add_to_reloc(addr + m[i], t)
     print('finalizing ...')
     append = b''
     mapping_txt = ''
@@ -985,21 +1040,11 @@ def process_pe():
     if hasattr(args, 'pe_afl'):
         pe.FILE_HEADER.NumberOfSections += 1
 
-    '''
-    m = get_sec_by_name(b'.text').addr_map
-    for a in m:
-        print ("0x{:x}   {}".format(a, m[a]))
-
-    for a in [0x1000, 0x104d, 0x1061, 0x1117, 0x11D0]:
-        print ("0x{:x} => 0x{:x} ({})".format(a, get_text_diff(a),get_text_diff(a)))
-    '''
-
     print('   AddressOfEntryPoint='+hex(pe.OPTIONAL_HEADER.AddressOfEntryPoint))
 
     addr = pe.OPTIONAL_HEADER.AddressOfEntryPoint
     s = get_sec_by_rva(addr)
     print ("get_sec_by_rva(0x{:x})".format(addr))
-    print(s)
     if hasattr(s, 'sec_diff'):
         print ("has attr sec_diff: 0x{:x}".format(s.sec_diff))
         print ("get_text_diff_by_rva(0x{:x}) = 0x{:x}".format(addr, get_text_diff_by_rva(addr)))
@@ -1024,10 +1069,10 @@ def process_pe():
         if hasattr(s, 'raw'):
             s.raw = s.raw[u32(s.raw[:4]):]
             if not is_exe(s):
-                assert len(s.raw) == s.SizeOfRawData, 'Section size has changed'
+                assert len(s.raw) == s.SizeOfRawData, 'Section size has changed from {} to {}'.format(s.SizeOfRawData, len(s.raw))
             print('updated {}'.format(s.Name.strip(b'\x00')))
 
-    return cut_reloc_size, append # TODO + append_reloc 
+    return cut_reloc_size, append
 
 def parse_arg():
     parser = argparse.ArgumentParser()
