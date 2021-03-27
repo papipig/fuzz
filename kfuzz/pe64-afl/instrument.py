@@ -467,14 +467,24 @@ def expand_instr(op, v, imm):
     ''' 
 
     supported = [
-                   '48ff15',     # call [rel32]
-                   'ff15',     # call [rel32]
+                    '48ff15',   # call [rel32]
+                    'ff15',     # call [rel32]
                     'ff25',     # jmp [rel32]
                     '8b05',     # mov eax, [rel32]
                     '8b0d',     # mov ecx, [rel32]
                     '8b15',     # mov edx, [rel32]
+
+                    '448925',   # mov [rel32], r12d
+
                     '483b05',   # cmp rax, [rel32]
                     '483b0d',   # cmp rcx, [rel32]
+                    '483b15',   # cmp rdx, [rel32]
+                    '483b1d',   # cmp rbx, [rel32]
+
+                    '483905',   # cmp [rel32],rax
+                    '48390d',   # cmp [rel32],rcx
+                    '483915',   # cmp [rel32],rdx
+                    '48391d',   # cmp [rel32],rbx
                     
                     '488905',   # mov [rel32], rax
 
@@ -493,6 +503,7 @@ def expand_instr(op, v, imm):
                     '488d15',   # lea rdx, rel32
                     '488d1d',   # lea rbx, rel32
                     '488d35',   # lea rsi, rel32
+                    '488d3d',   # lea rdi, rel32
 
                     '4c8905',   # mov rel32, r8
 
@@ -518,15 +529,19 @@ def expand_instr(op, v, imm):
 
                     '48ff25',   # jmp [rel32]
 
+                    '0f4415',   # cmovz edx,[rel32]
                     '0fb705',   # movzx eax, [rel32]
                     '0fb715',   # movzx edx, [rel32]
-
                     '0f1005',   # movups  xmm0, xmmword [rel32]
                     '0f1105',   # movups oword [rel32], xmm0
                     'f20f1105', # movsd qword [rel32], xmm0
                     '0f100d',   # movups  xmm1, xmmword [rel32]
+                    '4c6305',   # movsxd r8,dword [rel32]
 
                     '6644890d', # mov word [rel32], r9w
+                    '668905',   # mov [rel32],ax
+                    '66892d',   # mov [rel32],bp
+
                     '668935',   # mov word [rel32], si
                     '0f2905',   # movaps oword [rel32],xmm0
                     '0f290d',   # movaps oword [rel32],xmm1
@@ -560,7 +575,7 @@ def expand_instr(op, v, imm):
             return op + dword(v)
         if op in supported_imm:
             return op + dword(v) + imm
-        assert False, "operand not in list : {}, v = {} / {}".format(op, dword(v), (imm))
+        assert False, "operand not in list : {} v = {} / {}".format(op, dword(v), (imm))
 
 def seh_padding():
     # SEHandlerTable have to align with 4-byte
@@ -904,6 +919,7 @@ def process_pe():
             pass
         #print ("0x{:x}".format(delta_rva-(from_rva+cmd_len+expand_len)))
 
+        #print (hex(k))
         instr = bytes.fromhex(update_instr(relative[k].op, relative[k].opnd+expand_len, delta_rva-(from_rva+cmd_len+expand_len), relative[k].imm))
 #        print ("new instruction: {}".format(instr.hex()))
 
