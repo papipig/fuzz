@@ -7224,7 +7224,7 @@ static void usage(u8* argv0) {
        "ioctl mode params:\n\n"
 
        "  -K ioctl #    - ioctl kode\n"
-       "  -E endpoint   - ioctl endpoint\n"
+       "  -E endpoint   - ioctl endpoint\n\n"
 
        "Execution control settings:\n\n"
 

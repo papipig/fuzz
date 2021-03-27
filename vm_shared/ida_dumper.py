@@ -25,7 +25,7 @@ def check_jumptable(ea):
     comment = idaapi.get_cmt(ea, 0)
     if comment != None:
         if "jump table for switch statement" in comment:
-            ###print ("jump table: 0x{:x}".format(ea))
+            print ("jump table: 0x{:x}".format(ea))
             jmptables[ea] = ItemSize(ea)
 
 

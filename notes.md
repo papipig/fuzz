@@ -157,8 +157,12 @@ The snippet has been recoded (64-bits code).
 4. Extend short jumps from this list to long jumps (not always necessary, but simpler way to do this), with `expand_instr` then `inject_code`
 5. Runs `build_map` that creates a map for each section. `s.addr_map[offset]` contains `diff` + instruction length.
 6. updates `pdata` section (pointers to code stuffs)
-7. 
- 
+7. Performs a loop `for k in sorted(relative)` to update relative offsets by computing deltas between origin and destination RVAs (sections may have moved, RVAs may have changed, we need to compute everything)
+8. 
+
+
+
+TODO: deal with jump tables
 
 ### parse_relative
 
@@ -187,4 +191,103 @@ winsign -d sha256 <path to>/target.instrumented.sys <path to>/target.instrumente
 ```
 
 ## Fuzzing
+
+* Load `helper.sys` driver
+* Load target driver (ex : `target.instrumented.signed.sys `)
+* Check with `afl-showmap.exe` that instrumentation is successful
+
+Example (with HackSysExtremeVulnerableDriver as a target, `a.txt` being some random short ascii string):
+```
+E:\>afl-showmap.exe -p HEVD.instrumented.signed.sys -j ioctl -K 2236419 -E \\.\GLOBALROOT\Device\HackSysExtremeVulnerableDriver -o out.txt -A E:\a.txt
+afl-showmap for Windows 2.36b by <0vercl0k@tuxfamily.org>
+Based on WinAFL 2.36b by <ifratric@google.com>
+Based on AFL 2.36b by <lcamtuf@google.com>
+[*] Starting
+
+[+] Captured 27 tuples in 'out.txt'.
+
+E:\>type out.txt
+000767:1
+006936:1
+008421:1
+009581:1
+009797:1
+010110:1
+013766:1
+018055:1
+018780:14
+020856:1
+021368:1
+022936:1
+024043:1
+024149:1
+024807:6
+032825:1
+033254:1
+037013:1
+038131:1
+040823:1
+041511:1
+041995:1
+047696:1
+050102:1
+051569:1
+051630:1
+062107:1
+E:\
+```
+
+Then fuzzing:
+
+```
+E:\>afl-fuzz.exe -p HEVD.instrumented.signed.sys -j ioctl -K 2236419 -E \\.\GLOBALROOT\Device\HackSysExtremeVulnerableDriver -i E:\in -o E:\out -t 5000
+WinAFL 1.16b by <ifratric@google.com>
+Based on AFL 2.43b by <lcamtuf@google.com>
+[+] You have 1 CPU cores and 0 runnable tasks (utilization: 0%).
+[*] Setting up output directories...
+[+] Output directory exists but deemed OK to reuse.
+[*] Deleting old session data...
+[+] Output dir cleanup successful.
+[*] Scanning 'E:\in'...
+[+] No auto-generated dictionary tokens to reuse.
+[*] Creating hard links for all input files...
+[*] Attempting dry run with 'id_000000'...
+    len = 8, map size = 25, exec speed = 10322 us
+[+] All test cases processed.
+
+[+] Here are some useful stats:
+
+    Test case count : 1 favored, 0 variable, 1 total
+       Bitmap range : 25 to 25 bits (average: 25.00 bits)
+        Exec timing : 10.3k to 10.3k us (average: 10.3k us)
+
+[+] All set and ready to roll!
+
+         WinAFL 1.16b based on AFL 2.43b (HEVD.instrumented.signed.sys)
+
++- process timing -------------------------------------+- overall results ----+
+|        run time : 0 days, 0 hrs, 0 min, 54 sec       |  cycles done : 0     |
+|   last new path : 0 days, 0 hrs, 0 min, 26 sec       |  total paths : 15    |
+| last uniq crash : none seen yet                      | uniq crashes : 0     |
+|  last uniq hang : none seen yet                      |   uniq hangs : 0     |
++- cycle progress --------------------+- map coverage -+----------------------+
+|  now processing : 0 (0.00%)         |    map density : 0.04% / 0.06%        |
+| paths timed out : 0 (0.00%)         | count coverage : 1.21 bits/tuple      |
++- stage progress --------------------+ findings in depth --------------------+
+|  now trying : havoc                 | favored paths : 1 (6.67%)             |
+| stage execs : 2030/16.4k (12.39%)   |  new edges on : 6 (40.00%)            |
+| total execs : 3287                  | total crashes : 0 (0 unique)          |
+|  exec speed : 139.2/sec             |  total tmouts : 0 (0 unique)          |
++- fuzzing strategy yields -----------+---------------+- path geometry -------+
+|   bit flips : 0/64, 0/63, 0/61                      |    levels : 2         |
+|  byte flips : 0/8, 0/7, 0/5                         |   pending : 15        |
+| arithmetics : 0/448, 0/0, 0/0                       |  pend fav : 1         |
+|  known ints : 0/41, 0/238, 0/200                    | own finds : 14        |
+|  dictionary : 0/0, 0/0, 0/0                         |  imported : n/a       |
+|       havoc : 0/0, 0/0                              | stability : 100.00%   |
+|        trim : 0.00%/1, 0.00%                        +-----------------------+
+------------------------------------------------------+             [cpu:  0%]
+```
+
+Will find a crash in a couple of minutes.
 

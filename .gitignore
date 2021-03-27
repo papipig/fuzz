@@ -3,6 +3,21 @@ __pycache__/
 *.py[cod]
 *$py.class
 
+#IDA
+*.id0
+*.id1
+*.id2
+*.nam
+*.til
+
+# Custom
+*.sys
+*.i64
+*.zip
+*.o
+*.exe
+*vm_share*
+
 # C extensions
 *.so
 

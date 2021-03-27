@@ -680,10 +680,13 @@ def update_load_config_tbl(tbl, cnt, pe_size, append, align=4):
     return append
 
 def process_pe():
+    process_reloc = True
     # update section table
     # add new section entry, size of new section is affected by args.enlarge
 ### TODO: check this
-    assert b'.reloc' in pe.sections[-1].Name, '.reloc is not at the end'
+    if not b'.reloc' in pe.sections[-1].Name:
+        print ('.reloc is not at the end')
+        process_reloc = False
     #assert pe.get_length() == get_last_section('fa'), 'overlays is behind PE'
     for sec in sorted(pe.sections, key=lambda s: s.PointerToRawData):
         if is_exe(sec):
@@ -847,8 +850,6 @@ def process_pe():
 
     # TODO: jump tables !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     for k in sorted(relative):
-        if k == 0x140085c3e:
-            continue
         #print ("Relative: k = 0x{:x}, target = 0x{:x}".format(k, relative[k].target))
         from_ofs = va2ofs(k)
         from_rva = va2rva(k)
@@ -860,6 +861,7 @@ def process_pe():
 
         #print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
 
+        '''
         if k == 0x1400A00BF:
             delta_rva = get_relative_diff(from_rva, to_rva, verbose = True)
             rva = k - 0x140000000
@@ -874,6 +876,7 @@ def process_pe():
             print ('    delta = 0x{:x}'.format(get_text_diff_by_rva(relative[k].target - 0x140000000) - get_text_diff_by_rva(rva)))
             print ('    0x{:x}'.format(delta_rva-(from_rva+cmd_len+expand_len)))
             assert s != None
+        '''
 
         delta_rva = get_relative_diff(from_rva, to_rva)
 
@@ -883,8 +886,10 @@ def process_pe():
         # next_ofs is the offset to next instruction or data
         next_ofs = va2ofs(k+cmd_len)
 
+        '''
         if k == 0x1400A00BF:
             print ("next_ofs = 0x{:x}".format(next_ofs))
+        '''
 
         #if next_ofs == 0x2805:
         #    print (injected[0x2805])
@@ -910,34 +915,37 @@ def process_pe():
         s.raw = strrep(s.raw, from_ofs, instr[:cmd_len])
 
     # update .reloc entry
-    print('updating relocation ...')
 
-    for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+    if process_reloc:
 
-        for k in base_reloc.entries:
-            print ("reloc: 0x{:x} ({})".format(k.rva, k.type))
+        print('updating relocation ...')
+
+        for base_reloc in pe.DIRECTORY_ENTRY_BASERELOC:
+
+            for k in base_reloc.entries:
+                print ("reloc: 0x{:x} ({})".format(k.rva, k.type))
 
 
-        for reloc in base_reloc.entries:
-            if reloc.type == pefile.RELOCATION_TYPE['IMAGE_REL_BASED_ABSOLUTE']:
-                continue
+            for reloc in base_reloc.entries:
+                if reloc.type == pefile.RELOCATION_TYPE['IMAGE_REL_BASED_ABSOLUTE']:
+                    continue
 
-            v,s = rva2ofs(reloc.rva), get_sec_by_rva(reloc.rva)
-            print ("reloc offset: 0x{:x} in section {}".format(v, s.Name.strip(b'\x00')))
-            if is_exe(s) and not in_range(v, ida['idata']):
-                # assume that all relocation are data here
-                diff2 = get_data_diff_by_rva(reloc.rva)
-                LOG('[update reloc] %08Xh %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]) + ', diff2 = ' + hex(diff2))
-                add_to_reloc(reloc.rva + s.sec_diff + diff2, reloc.type)
-                s.raw = update_reloc_raw(reloc.type, s.raw, v)
-            else:
-                LOG('[update reloc] %08Xh %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]))
-                add_to_reloc(reloc.rva, reloc.type)
-                if not hasattr(s, 'raw'):
-                    setattr(s, 'raw', p32(s.PointerToRawData) + b'\x00'*(s.PointerToRawData-4) + s.get_data()) # give a padding
-                s.raw = update_reloc_raw(reloc.type, s.raw, v)
+                v,s = rva2ofs(reloc.rva), get_sec_by_rva(reloc.rva)
+                print ("reloc offset: 0x{:x} in section {}".format(v, s.Name.strip(b'\x00')))
+                if is_exe(s) and not in_range(v, ida['idata']):
+                    # assume that all relocation are data here
+                    diff2 = get_data_diff_by_rva(reloc.rva)
+                    LOG('[update reloc] %08Xh %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]) + ', diff2 = ' + hex(diff2))
+                    add_to_reloc(reloc.rva + s.sec_diff + diff2, reloc.type)
+                    s.raw = update_reloc_raw(reloc.type, s.raw, v)
+                else:
+                    LOG('[update reloc] %08Xh %s' % (reloc.rva, pefile.RELOCATION_TYPE[reloc.type][16:]))
+                    add_to_reloc(reloc.rva, reloc.type)
+                    if not hasattr(s, 'raw'):
+                        setattr(s, 'raw', p32(s.PointerToRawData) + b'\x00'*(s.PointerToRawData-4) + s.get_data()) # give a padding
+                    s.raw = update_reloc_raw(reloc.type, s.raw, v)
 
-    write_reloc()
+        write_reloc()
 
 
     # patching code with relative adresses (not reloc like in 32 bits)

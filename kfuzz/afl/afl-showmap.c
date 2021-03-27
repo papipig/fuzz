@@ -1129,6 +1129,8 @@ int main(int argc, char** argv) {
   //use_argv = argv + optind;
   //run_target(use_argv);
 
+  if(!at_file) FATAL("-A option is required.");
+
   init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str);
   process_ioctl(at_file);
 
