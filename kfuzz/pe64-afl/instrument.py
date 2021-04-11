@@ -180,7 +180,7 @@ def get_text_diff_by_rva(rva, verbose=False):
     assert s != None, "get_text_diff_by_rva: no section for RVA 0x{:x}".format(rva)
 
     '''
-    if rva == 0x0008A160 or rva == 0x3000:
+    if rva >= 0x0F4F2 and rva <= 0x0F500:
         verbose = True
         #traceback.print_stack(file=sys.stdout)
     '''
@@ -476,6 +476,8 @@ def expand_instr(op, v, imm):
 
                     '448925',   # mov [rel32], r12d
 
+                    '48211d',   # and [rel32], rbx
+
                     '483b05',   # cmp rax, [rel32]
                     '483b0d',   # cmp rcx, [rel32]
                     '483b15',   # cmp rdx, [rel32]
@@ -492,6 +494,7 @@ def expand_instr(op, v, imm):
                     '488b0d',   # mov rcx, [rel32]
                     '488b15',   # mov rdx, [rel32]
                     '488b1d',   # mov rbx, [rel32]
+                    '488b3d',   # mov rdi, [rel32]
 
                     '488905',   # mov [rel32], rax
                     '48890d',   # mov [rel32], rcx
@@ -505,13 +508,17 @@ def expand_instr(op, v, imm):
                     '488d35',   # lea rsi, rel32
                     '488d3d',   # lea rdi, rel32
 
-                    '4c8905',   # mov rel32, r8
+                    '4c8905',   # mov [rel32], r8
+                    '4c892d',   # mov [rel32],r13
 
                     '4c8b05',   # mov r8, rel32
                     '4c8b0d',   # mov r9, rel32
+                    '4c8b15',   # mov r10,[rel32]
+                    '4c8b1d',   # mov r11,[rel32]
 
                     '48870d',   # xchg rcx,[rel32]
 
+                    '488d2d',   # lea rbp, [rel32]
                     '4c8d05',   # lea r8, rel32
                     '4c8d0d',   # lea r9, rel32
                     '4c8d15',   # lea r10, rel32
@@ -520,6 +527,8 @@ def expand_instr(op, v, imm):
                     '4c8d2d',   # lea r13, rel32
                     '4c8d35',   # lea r10, rel32
                     '4c8d3d',   # lea r15, rel32                    
+
+                    '8705',     # xchg eax,[rel32]
                     '8905',     # mov [rel32], eax
                     '890d',     # mov [rel32], ecx
                     '8915',     # mov [rel32], edx
@@ -545,13 +554,17 @@ def expand_instr(op, v, imm):
                     '668935',   # mov word [rel32], si
                     '0f2905',   # movaps oword [rel32],xmm0
                     '0f290d',   # movaps oword [rel32],xmm1
+
+                    'f00fb10d',     # lock cmpxchg [rel32],ecx
+                    'f0480fb11d',   # lock cmpxchg [rel32],rbx
     ]
 
     supported_imm = [
-                    '48833d',   # cmp byte [rel32] + imm8
-                    '833d',     # cmp byte [rel32] + imm8
-                    'f605',     # test byte [rel32] + imm8
-                    'c705',     # mov [rel32] + imm32
+                    '488325',   # and qword [rel32], imm8
+                    '48833d',   # cmp byte [rel32], imm8
+                    '833d',     # cmp byte [rel32], imm8
+                    'f605',     # test byte [rel32], imm8
+                    'c705',     # mov [rel32], imm32
     ]
 
     if op == 'e2':              		    # loop rel8
@@ -637,14 +650,11 @@ def update_addr(addr):
     else:
         return addr
 
-
 def config_cov_sec(s):
     s.PointerToRawData = 0
     s.SizeOfRawData = 0
     LOG('configured section {}'.format(s.Name.strip(b'\x00')))
     return s
-
-
 
 def dup_sec(sec, name=None, size=0):
     s = pefile.SectionStructure(pe.__IMAGE_SECTION_HEADER_format__, pe=pe)
@@ -733,6 +743,10 @@ def process_pe():
     pbar.start()
 
     for index, k in enumerate(sorted(ida['relative'])):
+        if k == 0x14000F500:
+            print ("Ignoring @ 0x{:x}".format(k))
+            continue
+
         relative[k] = RELA(*ida['relative'][k])
         pbar.update(index)
     pbar.finish()
@@ -818,10 +832,7 @@ def process_pe():
     pbar.start()
 
     for index, i in enumerate(expand_list):
-        if i == 0x01400A00BF:
-            print
-            print (hex(jmp_map[i][0]))
-            #raise
+
         if i not in jmp_map:
             continue
         for j in jmp_map[i]:
@@ -843,7 +854,7 @@ def process_pe():
         cmd_len = relative[k].tlen
         e = int(len(expand_instr(relative[k].op, 0, b''))/2-cmd_len)
         # the expanded byte is stored in the next instruction
-        if k == 0x01400A00BF:
+        if k == 0x14000F500:
             print (" ********************************************************** ")
             print (" expanding {} bytes @ 0x{:x} cmd_len={}".format(e, k, cmd_len))
             inject_code(k+cmd_len, expand=b'\x01'*e, verbose=True)
@@ -863,7 +874,16 @@ def process_pe():
 #   for i in injected:
 #        print ("0x{:x} -> {}".format(i, injected[i]))
 
-    # TODO: jump tables !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+    for k in ida['absolute']:
+        # just patch absolute addresses
+        ofs = rva2ofs(k)
+        s = get_sec_by_ofs(ofs)
+        previous_rva = u32(s.raw[ofs:ofs+4])
+        new_rva = get_text_diff_by_rva(previous_rva) + previous_rva + s.sec_diff
+        print ("jump table @ 0x{:x} (ofs 0x{:x} in {}) prev = 0x{:x}, new = 0x{:x}".format(k, ofs, s.Name.strip(b'\x00'), previous_rva, new_rva))
+        s.raw = strrep(s.raw, ofs, p32(new_rva))
+
     for k in sorted(relative):
         #print ("Relative: k = 0x{:x}, target = 0x{:x}".format(k, relative[k].target))
         from_ofs = va2ofs(k)

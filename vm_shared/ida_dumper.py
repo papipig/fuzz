@@ -1,5 +1,6 @@
 import re
 import idaapi
+import struct
 
 H = lambda addr: hex(addr).strip('L')
 
@@ -20,16 +21,26 @@ endian = "big" if is_be else "little"
 
 print ('[INFO] Processor: {}, {}bit, {} endian'.format(info.procName, bits, endian))
 
+u32 = lambda v: struct.unpack('<I', v)[0]
 
 def check_jumptable(ea):
     comment = idaapi.get_cmt(ea, 0)
     if comment != None:
         if "jump table for switch statement" in comment:
             print ("jump table: 0x{:x}".format(ea))
-            jmptables[ea] = ItemSize(ea)
-
+            for i in range(0, ItemSize(ea), 4):
+                # new RVA
+                absolute.append(ea + i - idaapi.get_imagebase())
+                SetColor(ea + i, CIC_ITEM, 0xd0d0ff)
+                rva = u32(idc.GetManyBytes(ea + i, 4))
+                #print ("0x{:x}".format(rva))
+                # add it to basic blocks
+                bb.append(rva + idaapi.get_imagebase())
 
 def parse_relative(ea):
+
+    #verbose = (ea == 0x140003088)
+
     buf = idc.GetManyBytes(ea, ItemSize(ea))
 
     op1type = idc.GetOpType(ea, 0)
@@ -40,9 +51,20 @@ def parse_relative(ea):
     SetColor(ea,  CIC_ITEM, 0xffffff)
 
 
+    if idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] == 'jmp' and op1type == idaapi.o_reg:
+        # jmp reg
+        print ("JUMP reg @ {:x}".format(ea))
+        SetColor(ea, CIC_ITEM, 0xd5ff35)
+
+
     if (ord(buf[0]) == 0x48 and ord(buf[1]) == 0xA1) or (ord(buf[0]) == 0xA1):
         # absolute MOV
-        return None, None, None, None
+        if "{:x}".format(idaapi.get_imagebase()) in GetDisasm(ea):
+            # absolute MOV but IDA detected use of base so... keep it
+            print ("MOV using image base {:x}".format(ea))
+        else:
+            return None, None, None, None
+
 
     '''
     idaapi.o_void      # No Operand                           ---------- (0)
@@ -55,7 +77,8 @@ def parse_relative(ea):
     idaapi.o_near      # Immediate Near Address (CODE)        addr (7)
     '''
 
-    addr_optype = [    idaapi.o_near, # 7
+    addr_optype = [ 
+                    idaapi.o_near,    # 7
                     idaapi.o_far,     # 6
                     idaapi.o_mem,     # 2
                     ]
@@ -76,8 +99,9 @@ def parse_relative(ea):
         some PEs make use of their base address somehow, don't mess with this
     '''
     if idc.GetOperandValue(ea, n_op) == idaapi.get_imagebase():
-        #print ("Ignored image base {:x}".format(ea))
-        return None, None, None, None
+        print ("Ignored image base {:x} ({},{})".format(ea, op1type, op2type))
+        if idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] != 'lea':
+            return None, None, None, None
 
     '''
         detects when LEA is used for computation
@@ -85,15 +109,12 @@ def parse_relative(ea):
     '''
     if idc.GetOperandValue(ea, n_op) < idaapi.get_imagebase() and idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] == 'lea':
         # lea only can lead to a 'false relative' when used for arithmetics
-        ##print ("False relative {:x}   (0x{:x})".format(ea, idc.GetOperandValue(ea, n_op)))
+        #print ("False relative {:x}   (0x{:x})".format(ea, idc.GetOperandValue(ea, n_op)))
         return None, None, None, None
 
     '''
         instructions using imm as second operand have a final byte/dw after rel32...
     '''
-
-
-    SetColor(ea, CIC_ITEM, 0xd0ffd0)        
 
     l_imm = None
     if op2type == idaapi.o_imm:
@@ -111,6 +132,8 @@ def parse_relative(ea):
     else:
         l = 4
 
+    SetColor(ea, CIC_ITEM, 0xd0ffd0)
+
     if l_imm != None:
         return buf[:-(l+l_imm)], buf[-(l+l_imm):-l_imm], n_op, buf[-l_imm:]
     else:
@@ -119,36 +142,20 @@ def parse_relative(ea):
     idx = 0
     mpx_candidate = False
 
-    # call (e8), http://x86.renejeschke.de/html/file_module_x86_id_26.html
-    # jmp (eb/e9), http://x86.renejeschke.de/html/file_module_x86_id_147.html
-    # jxx (0F 80/0F 81/0F 82/0F 83/0F 84/0F 85/0F 86/0F 87/0F 88/0F 89/0F 8A/0F 8B/0F 8C/0F 8D/0F 8E/0F 8F/70/71/72/73/74/75/76/77/78/79/7A/7B/7C/7D/7E/7F), http://x86.renejeschke.de/html/file_module_x86_id_146.html
-    # jcxz/jecxz (67 e3/e3)
-    # loop/loope/loopz/loopne/loopnz (e0/e1/e2), http://x86.renejeschke.de/html/file_module_x86_id_161.html
-    '''
-    if ord(buf[idx]) == 0xf2:
-        idx += 1
-        mpx_candidate = True
+def parse_absolute(ea):
+    buf = idc.GetManyBytes(ea, ItemSize(ea))
 
-    if ord(buf[idx]) in [0xe0, 0xe1, 0xe2, 0xe3, 0xe8, 0xe9, 0xeb]:
-        idx += 1
-    elif ord(buf[idx]) == 0x0f and (ord(buf[idx+1]) >= 0x80 and ord(buf[idx+1]) <= 0x8f):
-        idx += 2
-    elif (ord(buf[idx]) >= 0x70 and ord(buf[idx]) <= 0x7f):
-        idx += 1
-    elif ord(buf[idx]) == 0x67 and ord(buf[idx+1]) == 0xe3:
-        idx += 2
+    op1type = idc.GetOpType(ea, 0)
+    op2type = idc.GetOpType(ea, 1)
 
-    if mpx_candidate and idx == 1:
-        idx = 0
+    if op1type == idaapi.o_reg and op2type == idaapi.o_displ and "{:x}".format(idaapi.get_imagebase()) in GetDisasm(ea):
+        # absolute MOV but IDA detected use of base so... keep it
+        n_op = 1
+        print ("ABSOLUTE detected @ {:x}".format(ea))
+        SetColor(ea, CIC_ITEM, 0xd0d0ff)
+        absolute.append(ea - idaapi.get_imagebase() + ItemSize(ea) - 4)
 
-    if idx:
-#        SetColor(ea, CIC_ITEM, 0xd0ffd0)
-        return buf[0:idx], buf[idx:]
-    else:
-        return None, None
-    '''
-
-def add_relative(ea):
+def add_relative_or_absolute(ea):
     # need operand length, so parse it manually
     op, operand, n_op, imm = parse_relative(ea)
     if op and operand:
@@ -158,10 +165,12 @@ def add_relative(ea):
         ###relative[ea] = [idc.GetOperandValue(ea,n_op), op.encode('hex'), len(operand), len(op+operand)]
         if ea == 0x140006aa1:
             print (relative[ea])
-
+    else:
+        parse_absolute(ea)
 
 possible_data = []
 def add_basic_block(ea):
+
     op = idc.GetMnem(ea)
     if not(op in ['call'] or op.startswith('j') or op.startswith('loop')):
         return
@@ -177,8 +186,18 @@ def add_basic_block(ea):
         return
 
     # identify as basic block, jxx/loop true/false target
-    bb.append(idc.NextHead(ea))
-    bb.append(operand)
+    if not donttouch or idc.NextHead(ea) not in donttouch:
+        bb.append(idc.NextHead(ea))
+    else:
+        print ("DONT TOUCH (1) @ 0x{:x}".format(idc.NextHead(ea)))
+
+    if not donttouch or operand not in donttouch:
+        bb.append(operand)
+    else:
+        print ("DONT TOUCH (2) @ 0x{:x}".format(operand))
+
+    #bb.append(idc.NextHead(ea))
+    #bb.append(operand)
 
 def set_color():
     for ea in bb:
@@ -258,7 +277,7 @@ def add_rip_relative_inst(head):
     # TODO, 64-bit use rip-relative rather than relocation
 
 def output_file():
-    ida_dump = {'jmptables': jmptables, 'bb': bb, 'relative': relative, 'rip_inst': rip_inst, 'idata': idata, 'stk_frame': stk_frame, 'code_loc': code_loc}
+    ida_dump = {'absolute': absolute, 'bb': bb, 'relative': relative, 'rip_inst': rip_inst, 'idata': idata, 'stk_frame': stk_frame, 'code_loc': code_loc}
     #print (ida_dump)
 
     print '[INFO]', str(len(bb)), 'blocks'
@@ -306,7 +325,7 @@ def process(text):
             check_guid(h)
 #            add_rip_relative_inst(h)
             add_basic_block(h)
-            add_relative(h)
+            add_relative_or_absolute(h)
         else:
             if code_start:
                 code_loc[code_start] = h
@@ -323,7 +342,7 @@ def process(text):
 Wait()
 bb = []
 relative = {}
-jmptables = {}
+absolute = []
 rip_inst = []
 idata = []
 stk_frame = {}

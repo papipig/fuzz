@@ -142,8 +142,68 @@ relative jumps		relative : {a : [b, 'e8', 4, 5], ...}
 					@a, there is a 0xe8 + rel32 that points to b
 					a has to be in bb list
 
-TODO: fix jump tables
 
+### use of `donttouch` variable
+
+Add VA to `donttouch` list to avoid adding bootstrap code to them.
+
+### lea used for computation
+
+This opcode uses `lea` with address `8`. We have to *guess* that `8` is no RVA, and that we are only dealing with arithmetics here...
+```
+.text:000000014000D080                  lea     rax, ds:8[rax*8]
+```
+
+### absolute use of base address
+
+In the following example, we must consider `cs:140000000h` as absolute. Left unmodified.
+
+```
+.text:000000014000307F                 lea     rdx, cs:140000000h
+```
+
+### jump tables
+
+In the following example, we have to consider `(byte_1400030B8 - 140000000h)` as RVA, but also `dd offset loc_14000309C - 140000000h` as RVAs. So we detect jump table thanks to IDA comments, and we mark every RVAs for patching.
+
+```
+.text:000000014000307D                 ja      short def_14000309A ; jumptable 000000014000309A default case, cases 13,15,17,19,24-35
+.text:000000014000307F                 lea     rdx, cs:140000000h
+.text:0000000140003086                 cdqe
+.text:0000000140003088                 movzx   eax, ds:(byte_1400030B8 - 140000000h)[rdx+rax]
+.text:0000000140003090                 mov     ecx, ds:(jpt_14000309A - 140000000h)[rdx+rax*4]
+.text:0000000140003097                 add     rcx, rdx
+.text:000000014000309A                 jmp     rcx             ; switch jump
+.text:000000014000309C ; ---------------------------------------------------------------------------
+[...]
+.text:00000001400030AA ; ---------------------------------------------------------------------------
+.text:00000001400030AB                 align 4
+.text:00000001400030AC jpt_14000309A   dd offset loc_14000309C - 140000000h
+.text:00000001400030AC                                         ; DATA XREF: sub_140003074+1C↑r
+.text:00000001400030AC                 dd offset loc_1400030A2 - 140000000h ; jump table for switch statement
+.text:00000001400030AC                 dd offset def_14000309A - 140000000h
+```
+
+### jump reg
+
+Another way of making a jump table, but goes undetected by IDA.
+```
+.text:000000014000F4EC                 neg     r9
+.text:000000014000F4EF                 inc     r10
+.text:000000014000F4F2                 lea     r11, loc_14000F4FD+2 ; *******
+.text:000000014000F4F9                 lea     r11, [r11+r9*4] ;  ***********
+.text:000000014000F4FD
+.text:000000014000F4FD loc_14000F4FD:
+.text:000000014000F4FD                 jmp     r11
+.text:000000014000F500 ; ---------------------------------------------------------------------------
+.text:000000014000F500
+.text:000000014000F500 loc_14000F500:
+.text:000000014000F500
+.text:000000014000F500                 mov     [rcx], rdx
+.text:000000014000F503                 mov     [rcx+8], rdx
+```
+
+Instructions like `jmp reg` will be pointed out by the script, allowing user to take appropriate actions (like using `donttouch` variable for example).
 
 ## pe-afl.py / instrument.py
 
@@ -158,11 +218,8 @@ The snippet has been recoded (64-bits code).
 5. Runs `build_map` that creates a map for each section. `s.addr_map[offset]` contains `diff` + instruction length.
 6. updates `pdata` section (pointers to code stuffs)
 7. Performs a loop `for k in sorted(relative)` to update relative offsets by computing deltas between origin and destination RVAs (sections may have moved, RVAs may have changed, we need to compute everything)
-8. 
+8. Patch jump tables
 
-
-
-TODO: deal with jump tables
 
 ### parse_relative
 
@@ -290,4 +347,9 @@ Based on AFL 2.43b by <lcamtuf@google.com>
 ```
 
 Will find a crash in a couple of minutes.
+
+```
+afl-showmap.exe -p NNSPIHSW.instrumented.signed4.sys -j ioctl -K 2248224 -E \\.\GLOBALROOT\Device\NNS_pihs -A E:\in\a.txt -o out.txt
+afl-fuzz.exe -p NNSPIHSW.instrumented.signed4.sys -j ioctl -K 2248224 -E \\.\GLOBALROOT\Device\NNS_pihs -i E:\in -o E:\out -t 5000
+```
 
