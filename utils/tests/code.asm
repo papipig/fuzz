@@ -7,11 +7,12 @@
     push rcx
     lahf
     seto al
+    xor rbx, rbx
     mov ebx, dword [rel C]           ; __afl_prev_loc @ .cov+0x10000
     xor ebx, 0x1234
     lea rcx, [rel C]
     add rcx, rbx
-    inc byte [rcx]              ; __afl_area_ptr @ .cov
+    inc byte [rcx]                    ; __afl_area_ptr @ .cov
     mov dword [rel C], 0x9876
     add al, 127
     sahf

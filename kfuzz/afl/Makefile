@@ -9,6 +9,7 @@ BINDIR := .
 all: $(TARGETSHOW) $(TARGETFUZZ) 
 clean:
 	rm -f ${OBJECTS_SHOW} ${OBJECTS_FUZZ} $(BINDIR)/$(TARGETSHOW) $(BINDIR)/$(TARGETFUZZ)
+
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@ 
 

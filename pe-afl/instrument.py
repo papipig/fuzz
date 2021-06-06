@@ -531,7 +531,8 @@ def process_pe():
             setattr(sec, 'sec_diff', s.VirtualAddress - sec.VirtualAddress)
             setattr(sec, 'addr_map', {})
 
-    s = get_sec_by_name(b'.bss')
+    s = get_sec_by_name(b'.data')
+    #s = get_sec_by_name(b'.bss')
     #assert not is_driver(pe.path) or s.Characteristics & pefile.SECTION_CHARACTERISTICS['IMAGE_SCN_MEM_NOT_PAGED'], 'any non page memory ?'
     if hasattr(args, 'pe_afl'):
         #dup_sec(s, name=b'.cov', size=0x10fff))

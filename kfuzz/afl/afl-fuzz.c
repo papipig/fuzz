@@ -1425,7 +1425,7 @@ static void setup_shm(void) {
                    NULL,                    // default security
                    PAGE_READWRITE,          // read/write access
                    0,                       // maximum object size (high-order DWORD)
-                   MAP_SIZE,                // maximum object size (low-order DWORD)
+                   MAP_SIZE + PAGE_SIZE,    // maximum object size (low-order DWORD)
                    (char *)shm_str);        // name of mapping object
 
     if(shm_handle == NULL) {
@@ -2631,6 +2631,30 @@ static int process_test_case_into_dll(int fuzz_iterations)
 }
 */
 
+
+
+
+/* Write results. */
+
+/*
+static u32 debug_count_results(void) {
+
+    u32 i, ret = 0;
+
+  for (i = 0; i < MAP_SIZE; i++) {
+
+      if (!trace_bits[i]) continue;
+      ret++;
+
+  }
+    
+  return ret;
+}
+
+
+int debug_old_n = 0;
+*/
+
 /* Execute target application, monitoring for timeouts. Return status
    information. The called program will update trace_bits[]. */
 
@@ -2649,12 +2673,21 @@ static u8 run_target(char** argv, u32 timeout) {
   }
   watchdog_enabled = 1;
 
-
   process_ioctl(out_file);
+
+/*
+  int debug_n;
+  debug_n = debug_count_results();
+  if (debug_old_n != debug_n) {
+    debug_old_n = debug_n;
+    //printf("NEW count : %d\n", debug_n);
+    //sleep(5);
+  }
+*/
+
 
   classify_counts((u64*)trace_bits);
 //  fuzz_iterations_current++;
-
 
 //  SAYF("done\n");
   return 0;

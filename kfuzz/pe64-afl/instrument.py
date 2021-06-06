@@ -467,58 +467,129 @@ def expand_instr(op, v, imm):
     ''' 
 
     supported = [
-                    '48ff15',   # call [rel32]
-                    'ff15',     # call [rel32]
-                    'ff25',     # jmp [rel32]
-                    '8b05',     # mov eax, [rel32]
-                    '8b0d',     # mov ecx, [rel32]
-                    '8b15',     # mov edx, [rel32]
-
+                    '0105',     # add [rel32], eax
+                    '010d',     # add [rel 0x6],ecx
+                    '010d',     # add [rel32], ecx
+                    '0115',     # add [rel 0x6],edx
+                    '0115',     # add [rel32], edx
+                    '011d',     # add [rel32], ebx
+                    '0f0d0d',   # prefetchw [rel32]
+                    '0f1005',   # movups  xmm0, xmmword [rel32]
+                    '0f100d',   # movups  xmm1, xmmword [rel32]
+                    '0f1105',   # movups oword [rel32], xmm0
+                    '0f2905',   # movaps oword [rel32],xmm0
+                    '0f290d',   # movaps oword [rel32],xmm1
+                    '0f4415',   # cmovz edx,[rel32]
+                    '0fb605',   # movzx eax,byte [rel 0x7]
+                    '0fb605',   # movzx eax,byte [rel32]
+                    '0fb60d',   # movzx ecx,byte [rel 0x7]
+                    '0fb60d',   # movzx ecx,byte [rel32]
+                    '0fb615',   # movzx edx,byte [rel32]
+                    '0fb61d',   # movzx ebx,byte [rel32]
+                    '0fb705',   # movzx eax, [rel32]
+                    '0fb70d',   # movzx ecx, [rel32]
+                    '0fb715',   # movzx edx, [rel32]
+                    '0fb71d',   # movzx ebx, [rel32]
+                    '2105',     # and [rel 0x6],eax
+                    '2135',     # and [rel 0x6],esi
+                    '2b05',     # sub eax,[rel 0x6]
+                    '3805',     # cmp [rel 0x6],al
+                    '381d',     # cmp [rel32], bl
+                    '3905',     # cmp [rel32], eax
+                    '390d',     # cmp [rel32], ecx
+                    '3915',     # cmp [rel 0x6],edx
+                    '391d',     # cmp [rel 0x6],ebx
+                    '3b1d',     # cmp ebx,[rel 0x6]
+                    '3b35',     # cmp esi,[rel 0x6]
+                    '3b3d',     # cmp edi,[rel 0x6]
+                    '40082d',   # or [rel 0x7],bpl
+                    '403835',   # cmp [rel32], sil
+                    '40383d',   # cmp [rel 0x7],dil
+                    '408435',   # test [rel 0x7],sil
+                    '40882d',   # mov [rel 0x7],bpl
+                    '40883d',   # mov [rel32], dil
+                    '408a2d',   # mov bpl, [rel32]
+                    '440835',   # or [rel 0x7],r14b
+                    '440fb60d', # movzx r9d,byte [rel 0x8]
+                    '440fb705', # movzx r8d,word [rel32]
+                    '440fb72d', # movzx r13d,word [rel32]
+                    '443815',   # cmp [rel 0x7],r10b
+                    '443825',   # cmp [rel32], r12d
+                    '44382d',   # cmp [rel32], r13d
+                    '443835',   # cmp [rel32], r14d
+                    '44383d',   # cmp [rel 0x7],r15b
+                    '44393d',   # cmp [rel 0x7],r15d
+                    '44873d',   # xchg r15d,[rel 0x7]
+                    '448905',   # mov [rel 0x7],r8d
+                    '44890d',   # mov [rel 0x7],r9d
                     '448925',   # mov [rel32], r12d
-
+                    '44892d',   # mov [rel32], r13d
+                    '448935',   # mov [rel32], r14d
+                    '448b05',   # mov r8d,[rel 0x7]
+                    '448b0d',   # mov r9d, [rel32]
+                    '448b15',   # mov r10d, [rel32]
+                    '480105',   # add [rel 0x7],rax
+                    '48010d',   # add [rel 0x7],rcx
+                    '480115',   # add [rel 0x7],rdx
+                    '480305',   # add rax, [rel32]
+                    '48030d',   # add rcx, [rel32]
+                    '480315',   # add rdx, [rel32]
+                    '48031d',   # add rbx, [rel32]
+                    '480f4405', # cmovz rax,[rel 0x8]
                     '48211d',   # and [rel32], rbx
-
-                    '483b05',   # cmp rax, [rel32]
-                    '483b0d',   # cmp rcx, [rel32]
-                    '483b15',   # cmp rdx, [rel32]
-                    '483b1d',   # cmp rbx, [rel32]
-
+                    '48213d',   # and [rel 0x7],rdi
+                    '482b05',   # sub rax,[rel 0x7]
+                    '482b0d',   # sub rcx,[rel 0x7]
                     '483905',   # cmp [rel32],rax
                     '48390d',   # cmp [rel32],rcx
                     '483915',   # cmp [rel32],rdx
                     '48391d',   # cmp [rel32],rbx
-                    
-                    '488905',   # mov [rel32], rax
-
-                    '488b05',   # mov rax, [rel32]
-                    '488b0d',   # mov rcx, [rel32]
-                    '488b15',   # mov rdx, [rel32]
-                    '488b1d',   # mov rbx, [rel32]
-                    '488b3d',   # mov rdi, [rel32]
-
+                    '48393d',   # cmp [rel 0x7],rdi
+                    '483b05',   # cmp rax, [rel32]
+                    '483b0d',   # cmp rcx, [rel32]
+                    '483b15',   # cmp rdx, [rel32]
+                    '483b1d',   # cmp rbx, [rel32]
+                    '483b35',   # cmp rsi,[rel 0x7]
+                    '483b3d',   # cmp rdi,[rel 0x7]
+                    '488515',   # test [rel 0x7],rdx
+                    '48870d',   # xchg rcx,[rel32]
                     '488905',   # mov [rel32], rax
                     '48890d',   # mov [rel32], rcx
                     '488915',   # mov [rel32], rdx
                     '48891d',   # mov [rel32], rbx
-
+                    '48892d',   # mov [rel 0x7],rbp
+                    '488935',   # mov [rel32], rsi
+                    '48893d',   # mov [rel32], rdi
+                    '488b05',   # mov rax, [rel32]
+                    '488b0d',   # mov rcx, [rel32]
+                    '488b15',   # mov rdx, [rel32]
+                    '488b1d',   # mov rbx, [rel32]
+                    '488b2d',   # mov rbp,[rel 0x7]
+                    '488b35',   # mov rsi, [rel32]
+                    '488b3d',   # mov rdi, [rel32]
                     '488d05',   # lea rax, rel32
                     '488d0d',   # lea rcx, rel32
                     '488d15',   # lea rdx, rel32
                     '488d1d',   # lea rbx, rel32
+                    '488d2d',   # lea rbp, [rel32]
                     '488d35',   # lea rsi, rel32
                     '488d3d',   # lea rdi, rel32
-
+                    '48ff15',   # call [rel32]
+                    '48ff25',   # jmp [rel32]
+                    '4c0305',   # add r8,[rel32]
+                    '4c030d',   # add r9,[rel 0x7]
+                    '4c393d',   # cmp [rel 0x7],r15
+                    '4c3b05',   # cmp r8,[rel 0x7]
+                    '4c6305',   # movsxd r8,dword [rel32]
                     '4c8905',   # mov [rel32], r8
                     '4c892d',   # mov [rel32],r13
-
+                    '4c8935',   # mov [rel 0x7],r14
+                    '4c893d',   # mov [rel 0x7],r15
                     '4c8b05',   # mov r8, rel32
                     '4c8b0d',   # mov r9, rel32
                     '4c8b15',   # mov r10,[rel32]
                     '4c8b1d',   # mov r11,[rel32]
-
-                    '48870d',   # xchg rcx,[rel32]
-
-                    '488d2d',   # lea rbp, [rel32]
+                    '4c8b35',   # mov r14,[rel 0x7]
                     '4c8d05',   # lea r8, rel32
                     '4c8d0d',   # lea r9, rel32
                     '4c8d15',   # lea r10, rel32
@@ -527,44 +598,82 @@ def expand_instr(op, v, imm):
                     '4c8d2d',   # lea r13, rel32
                     '4c8d35',   # lea r10, rel32
                     '4c8d3d',   # lea r15, rel32                    
-
+                    '663b05',   # cmp ax,[rel 0x7]
+                    '6644890d', # mov word [rel32], r9w
+                    '668905',   # mov [rel32],ax
+                    '66890d',   # mov [rel 0x7],cx
+                    '66892d',   # mov [rel32],bp
+                    '668935',   # mov word [rel32], si
+                    '840d',     # test [rel 0x6],cl
+                    '841d',     # test [rel 0x6],bl
                     '8705',     # xchg eax,[rel32]
+                    '870d',     # xchg ecx,[rel32]
+                    '8715',     # xchg edx,[rel32]
+                    '871d',     # xchg ebx,[rel32]
+                    '8805',     # mov [rel32], al
+                    '880d',     # mov [rel32], cl
+                    '8815',     # mov [rel32], dl
+                    '881d',     # mov [rel32], bl
                     '8905',     # mov [rel32], eax
                     '890d',     # mov [rel32], ecx
                     '8915',     # mov [rel32], edx
+                    '891d',     # mov [rel32], ebx
+                    '8925',     # mov [rel32], esp
+                    '892d',     # mov [rel32], ebp
+                    '8935',     # mov [rel32], esi
+                    '893d',     # mov [rel32], edi
+                    '8a05',     # mov al, [rel32]
+                    '8a0d',     # mov cl, [rel32]
+                    '8a15',     # mov dl, [rel32]
+                    '8a1d',     # mov bl, [rel32]
+                    '8b05',     # mov eax, [rel32]
+                    '8b0d',     # mov ecx, [rel32]
+                    '8b15',     # mov edx, [rel32]
+                    '8b1d',     # mov ebx,[rel 0x6]
+                    '8b35',         # mov esi,[rel 0x6]
+                    'f00fb10d',     # lock cmpxchg [rel32], ecx
+                    'f00fb115',     # lock cmpxchg [rel32], edx
+                    'f00fb135',     # lock cmpxchg [rel 0x8],esi
+                    'f00fb13d',     # lock cmpxchg [rel 0x8],edi
+                    'f00fc105',     # lock xadd [rel 0x8],eax
+                    'f00fc10d',     # lock xadd [rel32], ecx
+                    'f00fc115',     # lock xadd [rel32], edx
+                    'f0440fb135',   # lock cmpxchg [rel 0x9],r14d
+                    'f0440fb13d',   # lock cmpxchg [rel 0x9],r15d
+                    'f0480fb10d',   # lock cmpxchg [rel 0x9],rcx
+                    'f0480fb11d',   # lock cmpxchg [rel32], rbx
+                    'f0480fc105',   # lock xadd [rel 0x9],rax
+                    'f0ff05',       # lock inc dword [rel32]
+                    'f0ff0d',       # lock dec dword [rel32]
+                    'f20f1005',     # movsd xmm0,qword [rel 0x8]
+                    'f20f1105',     # movsd qword [rel32], xmm0
+                    'f30f7f0d',     # movdqu [rel 0x8],xmm1
+                    'f735',         # div dword [rel 0x6]
+                    'ff05',         # inc dword [rel32]
+                    'ff15',     # call [rel32]
+                    'ff25',     # jmp [rel32]
 
-                    #'48833d',   # mov [rel32], 
-                    '48893d',   # mov [rel32], rdi
-
-                    '48ff25',   # jmp [rel32]
-
-                    '0f4415',   # cmovz edx,[rel32]
-                    '0fb705',   # movzx eax, [rel32]
-                    '0fb715',   # movzx edx, [rel32]
-                    '0f1005',   # movups  xmm0, xmmword [rel32]
-                    '0f1105',   # movups oword [rel32], xmm0
-                    'f20f1105', # movsd qword [rel32], xmm0
-                    '0f100d',   # movups  xmm1, xmmword [rel32]
-                    '4c6305',   # movsxd r8,dword [rel32]
-
-                    '6644890d', # mov word [rel32], r9w
-                    '668905',   # mov [rel32],ax
-                    '66892d',   # mov [rel32],bp
-
-                    '668935',   # mov word [rel32], si
-                    '0f2905',   # movaps oword [rel32],xmm0
-                    '0f290d',   # movaps oword [rel32],xmm1
-
-                    'f00fb10d',     # lock cmpxchg [rel32],ecx
-                    'f0480fb11d',   # lock cmpxchg [rel32],rbx
     ]
 
     supported_imm = [
                     '488325',   # and qword [rel32], imm8
                     '48833d',   # cmp byte [rel32], imm8
-                    '833d',     # cmp byte [rel32], imm8
-                    'f605',     # test byte [rel32], imm8
+                    '48c705',   # mov qword [rel32], imm32
+
+                    '668325',   # and word [rel32], byte imm8
+                    '66c705',   # mov word [rel32], imm16
+
+                    '800d',     # or byte [rel32], imm8
+                    '803d',     # cmp byte [rel32], imm8
+                    '8325',     # and dword [rel 0x7],byte imm8
+                    '833d',     # cmp dword [rel32], byte imm8
+                    'c605',     # mov byte [rel32], imm8
                     'c705',     # mov [rel32], imm32
+
+                    'f0830d',   # lock or dword [rel 0x8],byte imm8
+                    'f08325',   # lock and dword [rel 0x8],byte imm8
+
+                    'f605',     # test byte [rel32], imm8
     ]
 
     if op == 'e2':              		    # loop rel8
@@ -589,6 +698,8 @@ def expand_instr(op, v, imm):
         if op in supported_imm:
             return op + dword(v) + imm
         assert False, "operand not in list : {} v = {} / {}".format(op, dword(v), (imm))
+        #print ("operand not in list : {} v = {} / {}".format(op, dword(v), (imm)))
+        #return op+ dword(v)
 
 def seh_padding():
     # SEHandlerTable have to align with 4-byte
@@ -891,7 +1002,7 @@ def process_pe():
         to_rva = va2rva(relative[k].target)
         if (to_rva < 0): 
             print ('VA 0x{:x} {} => VA 0x{:x} (RVA 0x{:x})'.format(k, relative[k].op, relative[k].target, to_rva))
-            assert len(relative[k].op)/2 == 4
+            assert len(relative[k].op)/2 == 4, "@ 0x{:x}: {}".format(k, relative[k].op)
             continue
 
         #print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))

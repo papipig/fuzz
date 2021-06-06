@@ -50,7 +50,6 @@ def parse_relative(ea):
 
     SetColor(ea,  CIC_ITEM, 0xffffff)
 
-
     if idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] == 'jmp' and op1type == idaapi.o_reg:
         # jmp reg
         print ("JUMP reg @ {:x}".format(ea))
@@ -115,16 +114,19 @@ def parse_relative(ea):
     '''
         instructions using imm as second operand have a final byte/dw after rel32...
     '''
-
     l_imm = None
     if op2type == idaapi.o_imm:
-        print ("IMMEDIATE @ 0x{:x}  ({}) len = {}".format(ea, op2type, len(buf)))
-        if len(buf) >= 10:
-            # dword immediate
-            l_imm = 4
+        if len(buf) >= 9:
+            if ord(buf[0]) == 0x66:
+                # word immediate
+                l_imm = 2
+            else:
+                # dword immediate
+                l_imm = 4
         else:
             # byte immediate
             l_imm = 1
+        #print ("IMMEDIATE @ 0x{:x}  ({}) len = {} (imm = {})".format(ea, op2type, len(buf), l_imm))
         
     # get len of operand
     if ItemSize(ea) == 2:
@@ -133,6 +135,14 @@ def parse_relative(ea):
         l = 4
 
     SetColor(ea, CIC_ITEM, 0xd0ffd0)
+
+    '''
+        Ignore references to (gs) (don't touch)
+    '''
+    for seg in ["gs", "fs"]:
+        if "{}:".format(seg) in GetDisasm(ea):
+            print ("Ignored reference to {} segment {:x}   {}".format(seg, ea, GetDisasm(ea)))
+            return None, None, None, None
 
     if l_imm != None:
         return buf[:-(l+l_imm)], buf[-(l+l_imm):-l_imm], n_op, buf[-l_imm:]
@@ -186,12 +196,12 @@ def add_basic_block(ea):
         return
 
     # identify as basic block, jxx/loop true/false target
-    if not donttouch or idc.NextHead(ea) not in donttouch:
+    if idc.NextHead(ea) not in donttouch:
         bb.append(idc.NextHead(ea))
     else:
         print ("DONT TOUCH (1) @ 0x{:x}".format(idc.NextHead(ea)))
 
-    if not donttouch or operand not in donttouch:
+    if operand not in donttouch:
         bb.append(operand)
     else:
         print ("DONT TOUCH (2) @ 0x{:x}".format(operand))

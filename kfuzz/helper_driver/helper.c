@@ -474,21 +474,69 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 	PVOID ptrBaseAddr = 0, ptrRetAddr = 0;
 
 	ULONG ptrRetRVA = 0;
-
+	
 	ULONG ptrTag = 0, ptrType = 0;
 	PVOID ptrUserAddr = 0, ptrMdl = 0;
 	PIO_STACK_LOCATION stack = NULL;
 	ANSI_STRING cov = { 4,5,".cov" };
+	ANSI_STRING data = { 5,6,".data" };
 	ANSI_STRING secName;
+	CHAR name[MAX_PATH_LEN] = { 0 };
+	HELPER_SECTION_RANGE range = {0};
 
 	stack = IoGetCurrentIrpStackLocation(pIrp);
 	code = stack->Parameters.DeviceIoControl.IoControlCode;
 	switch (code) {
-	case IOCTL_HELPER_GET_SECTION_ADDRESS:
+	case IOCTL_HELPER_GET_DATA_SECTION_ADDRESS:
+		DbgPrint("Get Data Section Address: %s\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
+		//RtlStringCchPrintfA(name, MAX_PATH_LEN, "%ws", pIrp->AssociatedIrp.SystemBuffer);
+		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%s", pIrp->AssociatedIrp.SystemBuffer);
 
-		DbgPrint("Get Section Address: %s\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
+		ptrBaseAddr = KernelGetModuleBase(name);
+		DbgPrint("KernelGetModuleBase(%s) = %I64x\n", name, ptrBaseAddr);
 
-		CHAR name[MAX_PATH_LEN] = { 0 };
+		if (ptrBaseAddr && (((PUCHAR)ptrBaseAddr)[0] == 'M') && (((PUCHAR)ptrBaseAddr)[1] == 'Z')) {
+			IMAGE_DOS_HEADER *pDosHeader = (IMAGE_DOS_HEADER*)ptrBaseAddr;
+			IMAGE_NT_HEADERS *pImageNTHeader = (IMAGE_NT_HEADERS*)((PUCHAR)ptrBaseAddr + pDosHeader->e_lfanew);
+			IMAGE_FILE_HEADER *pFileheader = &pImageNTHeader->FileHeader;
+			IMAGE_OPTIONAL_HEADER *pImageOptionalHeader = &pImageNTHeader->OptionalHeader;
+			IMAGE_SECTION_HEADER *sectionHeader = (IMAGE_SECTION_HEADER*)((PUCHAR)pImageOptionalHeader + pFileheader->SizeOfOptionalHeader);
+			for (i = 0; i<pFileheader->NumberOfSections; i++) {
+				RtlInitAnsiString(&secName, (PCSZ)sectionHeader->Name);
+				if (RtlCompareString(&secName, &data, TRUE) == 0) {
+					ptrRetRVA = sectionHeader->VirtualAddress;
+					size = sectionHeader->Misc.VirtualSize;
+
+					DbgPrint("------------------------------------------------------------------\n");
+					DbgPrint("Section Name = %s\n", sectionHeader->Name);
+					DbgPrint("Virtual Offset = %X\n", sectionHeader->VirtualAddress);
+					DbgPrint("Virtual Size = %X\n", sectionHeader->Misc.VirtualSize);
+					DbgPrint("Raw Offset = %X\n", sectionHeader->PointerToRawData);
+					DbgPrint("Raw Size = %X\n", sectionHeader->SizeOfRawData);
+					DbgPrint("Characteristics = %X\n", sectionHeader->Characteristics);
+					DbgPrint("------------------------------------------------------------------\n");
+				}
+				sectionHeader++;
+			}
+		}
+
+		if(ptrRetRVA) ptrRetAddr = ptrBaseAddr + ptrRetRVA;
+
+		range.addr = (ULONG *)ptrRetAddr;
+		range.size = size;
+
+		memcpy((HELPER_SECTION_RANGE *)pIrp->AssociatedIrp.SystemBuffer, &range, sizeof(range));
+
+		len = sizeof(HELPER_SECTION_RANGE);
+
+		DbgPrint("[HELPER] .data Address: 0x%I64X\n", ptrRetAddr);
+		DbgPrint("[HELPER] ptrRetAddr: 0x%I64X\n", ptrRetAddr);
+		DbgPrint("[HELPER] ptrBaseAddr: 0x%I64X\n", ptrBaseAddr);
+		DbgPrint("[HELPER] len : %d\n", len);
+
+		break;
+	case IOCTL_HELPER_GET_COV_SECTION_ADDRESS:
+		DbgPrint("Get COV Section Address: %s\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
 		//RtlStringCchPrintfA(name, MAX_PATH_LEN, "%ws", pIrp->AssociatedIrp.SystemBuffer);
 		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%s", pIrp->AssociatedIrp.SystemBuffer);
 

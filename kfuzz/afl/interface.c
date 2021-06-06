@@ -1,6 +1,6 @@
 #include "header.h"
 
-PUCHAR HELPER_GetModuleSectionAddress(PTCHAR pBuffer)
+PUCHAR HELPER_GetModuleCoverageSectionAddress(PTCHAR pBuffer)
 {
 	DWORD dwRet = 0, dwOutLen = 0, dwInLen = 0;
 	PUCHAR qwData = 0;
@@ -9,12 +9,32 @@ PUCHAR HELPER_GetModuleSectionAddress(PTCHAR pBuffer)
 	dwInLen = (DWORD)_tcsclen(pBuffer) + 1;
 	dwInLen *= 2;
 	dwOutLen = sizeof(qwData);
-	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_GET_SECTION_ADDRESS, pBuffer, dwInLen, &qwData, dwOutLen, &dwRet, NULL);
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_GET_COV_SECTION_ADDRESS, pBuffer, dwInLen, &qwData, dwOutLen, &dwRet, NULL);
 	if (!bRet) {
-		LOG(_T("HELPER_GetModuleSectionAddress(%s) failed, GLE(%x)\n"), pBuffer, GetLastError());
+		LOG(_T("HELPER_GetModuleCoverageSectionAddress(%s) failed, GLE(%x)\n"), pBuffer, GetLastError());
 	}
 	return qwData;
 }
+
+
+BOOL HELPER_GetModuleSectionAddressAndSize(PTCHAR pBuffer, HELPER_SECTION_RANGE *range)
+{
+	DWORD dwRet = 0, dwOutLen = 0, dwInLen = 0;
+	PUCHAR qwData = 0;
+	BOOLEAN bRet = 0;
+
+	dwInLen = (DWORD)_tcsclen(pBuffer) + 1;
+	dwInLen *= 2;
+	dwOutLen = sizeof(HELPER_SECTION_RANGE);
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_GET_DATA_SECTION_ADDRESS, pBuffer, dwInLen, range, dwOutLen, &dwRet, NULL);
+	if (!bRet) {
+		LOG(_T("HELPER_GetModuleSectionAddressAndSize(%s) failed, GLE(%x)\n"), pBuffer, GetLastError());
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
 
 DWORD HELPER_ReadMemory(PBYTE dwAddr, PBYTE pRetBuffer, DWORD dwLen)
 {

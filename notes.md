@@ -35,7 +35,6 @@ Source: https://docs.microsoft.com/en-us/windows-hardware/drivers/debugger/setti
 * reboot
 
 
-
 # Compiling and testing windows drivers on Linux
 
 ## Installing tools
@@ -351,5 +350,20 @@ Will find a crash in a couple of minutes.
 ```
 afl-showmap.exe -p NNSPIHSW.instrumented.signed4.sys -j ioctl -K 2248224 -E \\.\GLOBALROOT\Device\NNS_pihs -A E:\in\a.txt -o out.txt
 afl-fuzz.exe -p NNSPIHSW.instrumented.signed4.sys -j ioctl -K 2248224 -E \\.\GLOBALROOT\Device\NNS_pihs -i E:\in -o E:\out -t 5000
+
+afl-showmap.exe -p target.instrumented.signed.sys -j ioctl -K 2231428 -E \\.\GLOBALROOT\Device\t4rg3t -o out.txt -A E:\a.txt
+afl-fuzz.exe -p target.instrumented.signed.sys -j ioctl -K 2231428 -E \\.\GLOBALROOT\Device\t4rg3t -i E:\in -o E:\out -t 5000
+
+afl-showmap.exe -p HEVD.instrumented.signed.sys -j ioctl -K 2236419 -E \\.\GLOBALROOT\Device\HackSysExtremeVulnerableDriver -o out.txt -A E:\a.txt
+afl-fuzz.exe -p HEVD.instrumented.signed.sys -j ioctl -K 2236419 -E \\.\GLOBALROOT\Device\HackSysExtremeVulnerableDriver -i E:\in -o E:\out -t 5000
+
+
+
+
 ```
+
+
+
+
+
 

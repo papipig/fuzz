@@ -140,9 +140,9 @@ def init_snip():
         snip['single'] =  b'\x50'                                           # push rax
         snip['single'] += b'\x53'                                           # push rbx
         snip['single'] += b'\x51'                                           # push rcx
-#        snip['single'] += b'\xCC'                                           # int 3
+###        snip['single'] += b'\xCC'                                           # int 3
         snip['single'] += b'\x9f'                                           # lahf
-        snip['single'] += b'\x0f\x90\xC0'                                   # seto al
+        snip['single'] += b'\x0f\x90\xc0'                                   # seto al
         snip['single'] += b'\x8B\x1d' + struct.pack('<I',M_PREV_LOC1)       # mov ebx, [rel M_PREV_LOC1]
         snip['single'] += b'\x81\xF3' + struct.pack('<I',C_ADDR1)           # xor ebx, C_ADDR1
         snip['single'] += b'\x48\x8d\x0d' + struct.pack('<I',M_AREA_PTR)    # lea rcx, [rel M_AREA_PTR]

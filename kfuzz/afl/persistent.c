@@ -16,8 +16,15 @@
 #define DRIVER_NAME _T("\\\\.\\helper")
 
 PUCHAR COV_ADDR = NULL;
-PUCHAR KCOV_ADDR = NULL;
+PUCHAR DATA_ADDR = NULL;
 PUCHAR MDL_ADDR = NULL;
+PUCHAR MDL2_ADDR = NULL;
+
+PUCHAR KCOV_ADDR = NULL;
+HELPER_SECTION_RANGE RANGE = { 0 };
+
+char *backup = NULL;
+
 PUCHAR shared_mem;
 //HANDLE pipe;
 DWORD PERSISTENT_COUNT;
@@ -155,8 +162,10 @@ void setup_shmem(char *shm_name) {
 	map_file = OpenFileMappingA(
 		FILE_MAP_ALL_ACCESS,	// read/write access
 		FALSE,					// do not inherit the name
-		shm_name);	// name of mapping object
+		shm_name);				// name of mapping object
 	//_tgetenv(SHM_ENV_VAR));	// name of mapping object
+
+	LOG(_T("shm_name @ 0x%s\n"), shm_name);
 
 	if (map_file == NULL) PFATAL_GLE(_T("Error accessing shared memory (1)"));
 
@@ -164,7 +173,7 @@ void setup_shmem(char *shm_name) {
 		FILE_MAP_ALL_ACCESS,	// read/write permission
 		0,
 		0,
-		MAP_SIZE);
+		MAP_SIZE + PAGE_SIZE);
 
 	if (shared_mem == NULL) PFATAL_GLE(_T("Error accessing shared memory (2)"));
 	LOG(_T("shared_mem @ 0x%I64X\n"), shared_mem);
@@ -185,6 +194,8 @@ void setup_pipe() {
 	if (pipe == INVALID_HANDLE_VALUE) PFATAL(_T("Error connecting to pipe"));
 }
 */
+
+
 
 void PRE() {
 
@@ -207,16 +218,30 @@ void PRE() {
 	}
 */
 
-	BYTE buf[MAP_SIZE + PAGE_SIZE] = { 0 };
+	//BYTE buf[MAP_SIZE + PAGE_SIZE] = { 0 };
+	//BYTE buf[MAP_SIZE] = { 0 };
+	
+	/*
 	memcpy(buf + MAP_SIZE + 0x10, &PID, sizeof(DWORD));
 
 	if (CALLBACK_ADDR) {
 		memcpy(buf + MAP_SIZE + 0x20, &CALLBACK_ADDR, sizeof(DWORD));
 	}
+	*/
 
 //	if (_tgetenv(_T("DUMP_TRACE"))) HELPER_ResetBuffer();
 
-	memcpy(COV_ADDR, buf, sizeof(buf));
+	//memcpy(DATA_ADDR, backup, RANGE.size);		
+	/*
+	memcpy(DATA_ADDR, backup, 0x98+0x60);
+	memcpy(DATA_ADDR+0x100, backup+0x100, 16);
+	memcpy(DATA_ADDR+0x120, backup+0x120, 4*8);
+	memcpy(DATA_ADDR+0x160, backup+0x160, 0x2600);
+	*/
+	memcpy(backup, DATA_ADDR, RANGE.size);
+	memset(COV_ADDR, 0, MAP_SIZE + PAGE_SIZE);
+
+	//memcpy(COV_ADDR, buf, sizeof(buf));
 }
 
 void dump_trace_buffer() {
@@ -258,6 +283,22 @@ void POST() {
 	//if (!_tgetenv(SHM_ENV_VAR)) return;
 
 	memcpy(shared_mem, COV_ADDR, MAP_SIZE);
+//	memcpy(backup, DATA_ADDR, RANGE.size);		
+
+	unsigned int i;
+
+/*
+	for (i = 0; i < RANGE.size; i+=8) {
+		if (memcmp(&backup[i], DATA_ADDR + i, 8)) {
+			if (i != 0x150 && (i < 0x2780 || i >= 0x27C0)) {
+				printf ("*************************\n*************************\n");
+				printf("0x%08x\n", i);
+				ExitProcess(0);
+			}
+		}
+	}
+*/
+
 	MEM_BARRIER();
 
 //	if (_tgetenv(_T("DUMP_TRACE"))) dump_trace_buffer();
@@ -280,7 +321,6 @@ void CRASH() {
 }
 
 void INIT(char *afl_target, char *shm_name) {
-
 	target = afl_target;
 	_afl_target = afl_target;
 	/*
@@ -298,24 +338,48 @@ void INIT(char *afl_target, char *shm_name) {
 			PFATAL(_T("Can't create helper driver\n"));
 		}
 
-		LOG(_T("GetModuleSectionAddress(%s)\n"), target);
+		LOG(_T("HELPER_GetModuleSectionAddressAndSize(%s)\n"), target);
 
-		KCOV_ADDR = HELPER_GetModuleSectionAddress(target);
+/*
+		if (FALSE == HELPER_GetModuleSectionAddressAndSize(target, &RANGE)) {
+			PFATAL(_T("Can't get data section address\n"));
+		} else {
+			LOG(_T("Kernel data map @ 0x%I64X (len = 0x%I64X)\n"), RANGE.addr, RANGE.size);
+		}
+*/
+
+		LOG(_T("HELPER_GetModuleCoverageSectionAddress(%s)\n"), target);
+
+		KCOV_ADDR = HELPER_GetModuleCoverageSectionAddress(target);
 		LOG(_T("Kernel coverage map @ 0x%I64X\n"), KCOV_ADDR);
 		if (!KCOV_ADDR) {
 			PFATAL(_T("Can't get section address\n"));
 		}
 
+/*
 		CALLBACK_ADDR = get_driver_address("helper.sys", "_callback@0");
 		PID = _getpid();
 
 		LOG(_T("CALLBACK_ADDR @ 0x%I64X\n"), CALLBACK_ADDR);
 		LOG(_T("PID is %d\n"), PID);
+*/
 
 		HELPER_MapMemory(KCOV_ADDR, MAP_SIZE + PAGE_SIZE, (PBYTE*)&COV_ADDR, (PBYTE*)&MDL_ADDR);
 		LOG(_T("User coverage map @ %I64X\n"), COV_ADDR);
 		LOG(_T("MDL @ %I64X\n"), MDL_ADDR);
 
+/*
+		HELPER_MapMemory(RANGE.addr, RANGE.size, (PBYTE*)&DATA_ADDR, (PBYTE*)&MDL2_ADDR);
+		LOG(_T("User data map @ %I64X\n"), DATA_ADDR);
+		LOG(_T("MDL @ %I64X\n"), MDL2_ADDR);
+
+		backup = (char *)malloc(RANGE.size);
+		if (NULL == backup) {
+			PFATAL_GLE(_T("malloc() failed"));
+		}
+
+		memcpy(backup, DATA_ADDR, RANGE.size);		
+*/
 	}
 	else {
 		PFATAL(_T("Can not getenv __AFL_SHM_ID (currently not run with afl-showmap or afl-fuzz)\n"));
@@ -327,5 +391,11 @@ void FINI()
 {
 	if (COV_ADDR && MDL_ADDR) {
 		HELPER_UnmapMemory(COV_ADDR, MDL_ADDR);
+	}
+	if (DATA_ADDR && MDL2_ADDR) {
+		HELPER_UnmapMemory(DATA_ADDR, MDL2_ADDR);
+	}
+	if (backup) {
+		free(backup);
 	}
 }

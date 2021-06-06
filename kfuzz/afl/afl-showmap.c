@@ -242,7 +242,7 @@ static void setup_shm(void) {
                    NULL,                    // default security
                    PAGE_READWRITE,          // read/write access
                    0,                       // maximum object size (high-order DWORD)
-                   MAP_SIZE,                // maximum object size (low-order DWORD)
+                   MAP_SIZE + PAGE_SIZE,    // maximum object size (low-order DWORD)
                    (char *)shm_str);        // name of mapping object
 
     if(shm_handle == NULL) {
