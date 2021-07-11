@@ -474,9 +474,11 @@ def expand_instr(op, v, imm):
                     '0115',     # add [rel32], edx
                     '011d',     # add [rel32], ebx
                     '0f0d0d',   # prefetchw [rel32]
-                    '0f1005',   # movups  xmm0, xmmword [rel32]
-                    '0f100d',   # movups  xmm1, xmmword [rel32]
+                    '0f1005',   # movups xmm0, xmmword [rel32]
+                    '0f100d',   # movups xmm1, xmmword [rel32]
                     '0f1105',   # movups oword [rel32], xmm0
+                    '0f2805',   # movaps xmm0, oword [rel32]
+                    '0f280d',   # movaps xmm1, oword [rel32]                    
                     '0f2905',   # movaps oword [rel32],xmm0
                     '0f290d',   # movaps oword [rel32],xmm1
                     '0f4415',   # cmovz edx,[rel32]
@@ -646,6 +648,7 @@ def expand_instr(op, v, imm):
                     'f0ff05',       # lock inc dword [rel32]
                     'f0ff0d',       # lock dec dword [rel32]
                     'f20f1005',     # movsd xmm0,qword [rel 0x8]
+                    'f20f100d',     # movsd xmm1,qword [rel 0x8]
                     'f20f1105',     # movsd qword [rel32], xmm0
                     'f30f7f0d',     # movdqu [rel 0x8],xmm1
                     'f735',         # div dword [rel 0x6]

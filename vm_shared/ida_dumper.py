@@ -134,8 +134,6 @@ def parse_relative(ea):
     else:
         l = 4
 
-    SetColor(ea, CIC_ITEM, 0xd0ffd0)
-
     '''
         Ignore references to (gs) (don't touch)
     '''
@@ -143,6 +141,8 @@ def parse_relative(ea):
         if "{}:".format(seg) in GetDisasm(ea):
             print ("Ignored reference to {} segment {:x}   {}".format(seg, ea, GetDisasm(ea)))
             return None, None, None, None
+
+    SetColor(ea, CIC_ITEM, 0xd0ffd0)
 
     if l_imm != None:
         return buf[:-(l+l_imm)], buf[-(l+l_imm):-l_imm], n_op, buf[-l_imm:]
