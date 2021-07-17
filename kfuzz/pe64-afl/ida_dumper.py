@@ -1,6 +1,12 @@
 import re
 import idaapi
 import struct
+import idautils
+import idc
+
+if "donttouch" in globals():
+    print ("Empty 'donttouch', creating it")
+    donttouch = []
 
 H = lambda addr: hex(addr).strip('L')
 
@@ -20,6 +26,14 @@ except:
 endian = "big" if is_be else "little"
 
 print ('[INFO] Processor: {}, {}bit, {} endian'.format(info.procName, bits, endian))
+
+file_end = 0
+for s in idautils.Segments():
+    end = idc.get_segm_end(s)
+    if file_end < end:
+        file_end = end
+
+print ("[INFO] File range is : 0x{:x}-0x{:x}".format(idaapi.get_imagebase(), file_end))
 
 u32 = lambda v: struct.unpack('<I', v)[0]
 
@@ -109,6 +123,12 @@ def parse_relative(ea):
     if idc.GetOperandValue(ea, n_op) < idaapi.get_imagebase() and idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] == 'lea':
         # lea only can lead to a 'false relative' when used for arithmetics
         #print ("False relative {:x}   (0x{:x})".format(ea, idc.GetOperandValue(ea, n_op)))
+        return None, None, None, None
+
+
+    if idc.GetOperandValue(ea, n_op) > file_end and idaapi.tag_remove(idaapi.generate_disasm_line(ea)).split()[0] == 'lea':
+        # lea only can lead to a 'false relative' when used for arithmetics
+        print ("False relative {:x}   (0x{:x}) ?".format(ea, idc.GetOperandValue(ea, n_op)))
         return None, None, None, None
 
     '''

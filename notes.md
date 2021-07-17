@@ -153,6 +153,12 @@ This opcode uses `lea` with address `8`. We have to *guess* that `8` is no RVA, 
 .text:000000014000D080                  lea     rax, ds:8[rax*8]
 ```
 
+Other case, where address used is way above base address:
+```
+.text:000000014000D080                  lea     rax, ds:0xffffffffffffffec[rax*8]
+```
+
+
 ### absolute use of base address
 
 In the following example, we must consider `cs:140000000h` as absolute. Left unmodified.

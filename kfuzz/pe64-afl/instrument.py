@@ -11,6 +11,8 @@ import re
 from progressbar import * 
 import traceback
 
+DEBUG = False
+
 widgets = ['Progress: ', Percentage(), ' ', Bar(marker='#',left='[',right=']'), ' ', ETA()] #see docs for other options
 
 pe=None
@@ -388,6 +390,8 @@ def get_relative_diff(from_fa, to_fa, verbose=False):
     from_s = get_sec_by_rva(from_fa)
     
     from_ofs = rva2ofs(from_fa)
+    if DEBUG:
+        print ("0x{:x}".format(to_fa))
     to_ofs = rva2ofs(to_fa)
 
     if verbose:
@@ -482,6 +486,10 @@ def expand_instr(op, v, imm):
                     '0f2905',   # movaps oword [rel32],xmm0
                     '0f290d',   # movaps oword [rel32],xmm1
                     '0f4415',   # cmovz edx,[rel32]
+                    '0f4505',   # cmovnz eax, [rel32]
+                    '0f450d',   # cmovnz ecx, [rel32]
+                    '0f4515',   # cmovnz edx, [rel32]
+                    '0f451d',   # cmovnz ebx, [rel32]
                     '0fb605',   # movzx eax,byte [rel 0x7]
                     '0fb605',   # movzx eax,byte [rel32]
                     '0fb60d',   # movzx ecx,byte [rel 0x7]
@@ -496,6 +504,8 @@ def expand_instr(op, v, imm):
                     '2135',     # and [rel 0x6],esi
                     '2b05',     # sub eax,[rel 0x6]
                     '3805',     # cmp [rel 0x6],al
+                    '380d',     # cmp [rel 0x6],cl
+                    '3815',     # cmp [rel32], dl
                     '381d',     # cmp [rel32], bl
                     '3905',     # cmp [rel32], eax
                     '390d',     # cmp [rel32], ecx
@@ -505,6 +515,7 @@ def expand_instr(op, v, imm):
                     '3b35',     # cmp esi,[rel 0x6]
                     '3b3d',     # cmp edi,[rel 0x6]
                     '40082d',   # or [rel 0x7],bpl
+                    '40382d',   # cmp [rel32], bpl
                     '403835',   # cmp [rel32], sil
                     '40383d',   # cmp [rel 0x7],dil
                     '408435',   # test [rel 0x7],sil
@@ -516,12 +527,14 @@ def expand_instr(op, v, imm):
                     '440fb705', # movzx r8d,word [rel32]
                     '440fb72d', # movzx r13d,word [rel32]
                     '443815',   # cmp [rel 0x7],r10b
+                    '44381d',   # cmp [rel 0x7],r11b
                     '443825',   # cmp [rel32], r12d
                     '44382d',   # cmp [rel32], r13d
                     '443835',   # cmp [rel32], r14d
                     '44383d',   # cmp [rel 0x7],r15b
                     '44393d',   # cmp [rel 0x7],r15d
                     '44873d',   # xchg r15d,[rel 0x7]
+                    '44882d',   # mov [rel 0x7],r13b
                     '448905',   # mov [rel 0x7],r8d
                     '44890d',   # mov [rel 0x7],r9d
                     '448925',   # mov [rel32], r12d
@@ -606,6 +619,14 @@ def expand_instr(op, v, imm):
                     '66890d',   # mov [rel 0x7],cx
                     '66892d',   # mov [rel32],bp
                     '668935',   # mov word [rel32], si
+                    '660f7f05', # movdqa [rel 32], xmm0
+                    '660f7f0d', # movdqa [rel 32], xmm1
+                    '660f7f15', # movdqa [rel 32], xmm2
+                    '660f7f1d', # movdqa [rel 32], xmm3
+                    '660f7f25', # movdqa [rel 32], xmm4
+                    '660f7f2d', # movdqa [rel 32], xmm5
+                    '660f7f35', # movdqa [rel 32], xmm6
+                    '660f7f3d', # movdqa [rel 32], xmm7
                     '840d',     # test [rel 0x6],cl
                     '841d',     # test [rel 0x6],bl
                     '8705',     # xchg eax,[rel32]
@@ -633,6 +654,7 @@ def expand_instr(op, v, imm):
                     '8b15',     # mov edx, [rel32]
                     '8b1d',     # mov ebx,[rel 0x6]
                     '8b35',         # mov esi,[rel 0x6]
+                    'f0013d',       # lock add [rel 32], edi
                     'f00fb10d',     # lock cmpxchg [rel32], ecx
                     'f00fb115',     # lock cmpxchg [rel32], edx
                     'f00fb135',     # lock cmpxchg [rel 0x8],esi
@@ -650,9 +672,17 @@ def expand_instr(op, v, imm):
                     'f20f1005',     # movsd xmm0,qword [rel 0x8]
                     'f20f100d',     # movsd xmm1,qword [rel 0x8]
                     'f20f1105',     # movsd qword [rel32], xmm0
+                    'f30f7f05',     # movdqu [rel 0x8],xmm0
                     'f30f7f0d',     # movdqu [rel 0x8],xmm1
+                    'f30f7f15',     # movdqu [rel 0x8],xmm2
+                    'f30f7f1d',     # movdqu [rel 0x8],xmm3
+                    'f30f7f25',     # movdqu [rel 0x8],xmm4
+                    'f30f7f2d',     # movdqu [rel 0x8],xmm5
+                    'f30f7f35',     # movdqu [rel 0x8],xmm6
+                    'f30f7f3d',     # movdqu [rel 0x8],xmm7
                     'f735',         # div dword [rel 0x6]
                     'ff05',         # inc dword [rel32]
+                    'ff0d',         # dec dword [rel32]
                     'ff15',     # call [rel32]
                     'ff25',     # jmp [rel32]
 
@@ -1008,7 +1038,8 @@ def process_pe():
             assert len(relative[k].op)/2 == 4, "@ 0x{:x}: {}".format(k, relative[k].op)
             continue
 
-        #print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
+        if DEBUG:
+            print ('VA 0x{:x} (OFS 0x{:x}, RVA 0x{:x}) => VA 0x{:x} (RVA 0x{:x})'.format(k, from_ofs, from_rva, relative[k].target, to_rva))
 
         '''
         if k == 0x1400A00BF:
