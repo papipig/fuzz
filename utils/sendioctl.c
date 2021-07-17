@@ -7,9 +7,11 @@ x86_64-w64-mingw32-gcc sendioctl.c -o sendioctl.exe -DMINGW -std=c99 -Wunused-fu
 #include <stdio.h>
 
 void usage(char *app) {
-    printf("Usage: %s <driver endpoint> <IOCTL> <filename>\n", app);
+    printf("Usage: %s <driver endpoint> <IOCTL> <filename> <outputlen>\n", app);
     exit(1);
 }
+
+#define MAXOUTLEN   100000
 
 int main(char argc, char ** argv)
 {
@@ -17,11 +19,11 @@ int main(char argc, char ** argv)
     BOOL status = FALSE;                 
     DWORD bytesReturned = 0;
     CHAR inBuffer[1024] = {0};
-    CHAR outBuffer[1024] = {0};
+    CHAR outBuffer[MAXOUTLEN] = {0};
     size_t filesize = 0;
 
 
-    if (argc != 4) {
+    if (argc != 5) {
         usage(argv[0]);
     }
 
@@ -42,8 +44,12 @@ int main(char argc, char ** argv)
         return FALSE;
     }
 
+    if (atoi(argv[4]) >= MAXOUTLEN) {
+        printf_s("> Buffer len too high (increase maximum: %d)\n", atoi(argv[4]));
+    }
+
     printf_s("> Issuing IOCTL 0x%x\n", atoi(argv[2]));
-    status = DeviceIoControl(device, atoi(argv[2]), inBuffer, filesize, outBuffer, sizeof(outBuffer), &bytesReturned, (LPOVERLAPPED)NULL);
+    status = DeviceIoControl(device, atoi(argv[2]), inBuffer, filesize, outBuffer, atoi(argv[4]), &bytesReturned, (LPOVERLAPPED)NULL);
     printf_s("> IOCTL 0x%x issued\n", atoi(argv[2]));
     printf_s("> Received from the kernel land: %s. Received buffer size: %d\n", outBuffer, bytesReturned);
 

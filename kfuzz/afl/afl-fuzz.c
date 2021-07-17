@@ -46,9 +46,10 @@
 static char mode = 0;
 static char *ioctl_endpoint = NULL;
 static int ioctl_code = 0;
+static int ioctl_recbuf_size = 0;
 static char *target_module;
 
-void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name);
+void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name, int ioctl_recbuf_size);
 void process_ioctl(char *at_file);
 
 
@@ -7258,6 +7259,7 @@ static void usage(u8* argv0) {
 
        "  -K ioctl #    - ioctl kode\n"
        "  -E endpoint   - ioctl endpoint\n\n"
+       "  -s size       - size of receive buffer\n\n"
 
        "Execution control settings:\n\n"
 
@@ -7958,7 +7960,7 @@ int main(int argc, char** argv) {
   dynamorio_dir = NULL;
   client_params = NULL;
 
-  while ((opt = getopt(argc, argv, "+i:o:p:f:j:K:E:m:t:I:T:dYnCB:S:M:x:QD:b:l:Pc:")) > 0)
+  while ((opt = getopt(argc, argv, "+i:s:o:p:f:j:K:E:m:t:I:T:dYnCB:S:M:x:QD:b:l:Pc:")) > 0)
 
     switch (opt) {
       case 'i':
@@ -7968,6 +7970,10 @@ int main(int argc, char** argv) {
 
         if (!strcmp(in_dir, "-")) in_place_resume = 1;
 
+        break;
+
+      case 's':
+        ioctl_recbuf_size = atoi(optarg);
         break;
 
       case 'K':
@@ -8221,6 +8227,10 @@ int main(int argc, char** argv) {
     usage(argv[0]);
   }
 
+  if (0 == ioctl_recbuf_size) {
+    SAYF("ioctl receive buffer size is required\n");
+  }
+
 
   setup_signal_handlers();
   check_asan_opts();
@@ -8315,7 +8325,7 @@ int main(int argc, char** argv) {
     use_argv = argv + optind;
 
   if (mode == MODE_IOCTL) {
-    init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str);
+    init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str, ioctl_recbuf_size);
   } else {
     FATAL("Unknown mode\n");
   }

@@ -178,30 +178,32 @@ void init_device(TCHAR* name) {
 	g_hDev = openDev(name);
 }
 
-void process(HANDLE hDev, DWORD iocode, PTCHAR input_path) {
-	TCHAR outbuf[0x10000];
+void process(HANDLE hDev, DWORD iocode, PTCHAR input_path, int ioctl_recbuf_size) {
+	TCHAR outbuf[ioctl_recbuf_size];
 
 	PVOID inbuf = mapInputFile(input_path);
 
 	if (g_szFile) {
-		sendIoctl(hDev, iocode, inbuf, g_szFile, outbuf, g_szFile);
+		sendIoctl(hDev, iocode, inbuf, g_szFile, outbuf, ioctl_recbuf_size);
 	}
 	UnmapViewOfFile(inbuf);
 }
 
 int _ioctl_code = 0;
+int _ioctl_recbuf_size = 0;
 
-void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name) {
+void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name, int ioctl_recbuf_size) {
 //    LOG(_T("CODE: 0x%x\n"), CTL_CODE(FILE_DEVICE_UNKNOWN, 801, METHOD_BUFFERED, FILE_ANY_ACCESS));
     INIT(afl_target, shm_name);
     init_device(ioctl_endpoint);
 
     _ioctl_code = ioctl_code;
+    _ioctl_recbuf_size = ioctl_recbuf_size;
 }
 
  void process_ioctl(char *at_file) {
 	PRE();
-    process(g_hDev, _ioctl_code, at_file);
+    process(g_hDev, _ioctl_code, at_file, _ioctl_recbuf_size);
     POST();
  }
 

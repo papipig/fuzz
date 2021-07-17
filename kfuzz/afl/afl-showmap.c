@@ -56,8 +56,9 @@
 static char mode = 0;
 static char *ioctl_endpoint = NULL;
 static int ioctl_code = 0;
+static int ioctl_recbuf_size = 0;
 
-void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name);
+void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name, int ioctl_recbuf_size);
 void process_ioctl(char *at_file);
 
 static s32 child_pid;                 /* PID of the tested program         */
@@ -812,6 +813,7 @@ static void usage(u8* argv0) {
 
        "  -K ioctl #    - ioctl kode\n"
        "  -E endpoint   - ioctl endpoint\n"
+       "  -s size       - size of receive buffer\n\n"
 
        "Execution control settings:\n\n"
 
@@ -949,9 +951,13 @@ int main(int argc, char** argv) {
   enable_ansi_console();
 #endif
 
-  while ((opt = getopt(argc, argv, "+o:j:K:E:m:t:p:A:D:eqZQb")) > 0)
+  while ((opt = getopt(argc, argv, "+o:j:s:K:E:m:t:p:A:D:eqZQb")) > 0)
 
     switch (opt) {
+
+      case 's':
+        ioctl_recbuf_size = atoi(optarg);
+        break;
 
       case 'o':
 
@@ -1098,6 +1104,10 @@ int main(int argc, char** argv) {
     usage(argv[0]);
   }
 
+  if (0 == ioctl_recbuf_size) {
+    SAYF("ioctl receive buffer size is required\n");
+  }
+
   //extract_client_params(argc, argv);
   //optind++;
 
@@ -1131,7 +1141,7 @@ int main(int argc, char** argv) {
 
   if(!at_file) FATAL("-A option is required.");
 
-  init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str);
+  init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str, ioctl_recbuf_size);
   process_ioctl(at_file);
 
   tcnt = write_results();
