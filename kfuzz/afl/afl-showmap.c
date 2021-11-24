@@ -53,13 +53,17 @@
 #define USE_COLOR
 
 #define MODE_IOCTL  1
+#define MODE_CLFS   2
+
 static char mode = 0;
 static char *ioctl_endpoint = NULL;
 static int ioctl_code = 0;
 static int ioctl_recbuf_size = 0;
 
 void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name, int ioctl_recbuf_size);
+void init_clfs(char *afl_target, char *shm_name);
 void process_ioctl(char *at_file);
+void process_clfs(char *at_file);
 
 static s32 child_pid;                 /* PID of the tested program         */
 static HANDLE child_handle,
@@ -136,6 +140,7 @@ static const u8 count_class_binary[256] = {
 
 };
 
+/*
 static void classify_counts(u8* mem, const u8* map) {
 
   u32 i = MAP_SIZE;
@@ -157,7 +162,7 @@ static void classify_counts(u8* mem, const u8* map) {
   }
 
 }
-
+*/
 
 /* Get unix time in milliseconds */
 
@@ -176,6 +181,7 @@ static u64 get_cur_time(void) {
 
 /* Get unix time in microseconds */
 
+/*
 static u64 get_cur_time_us(void) {
 
   u64 ret;
@@ -187,6 +193,7 @@ static u64 get_cur_time_us(void) {
   return ret / 10;
 
 }
+*/
 
 
 char *alloc_printf(const char *_str, ...) {
@@ -631,11 +638,11 @@ static void setup_watchdog_timer() {
   CreateThread(NULL, 0, watchdog_timer, 0, 0, NULL);
 }
 
-
+/*
 static int is_child_running() {
    return (child_handle && (WaitForSingleObject(child_handle, 0 ) == WAIT_TIMEOUT));
 }
-
+*/
 
 /* Execute target application. */
 /*
@@ -807,7 +814,7 @@ static void usage(u8* argv0) {
 
        "  -o file       - file to write the trace data to\n"
        "  -p module     - target module to test\n\n"
-       "  -j mode       - fuzzing mode (ioctl)\n\n"
+       "  -j mode       - fuzzing mode (ioctl, clfs)\n\n"
 
        "ioctl mode params:\n\n"
 
@@ -977,8 +984,11 @@ int main(int argc, char** argv) {
           if(!strcmp(optarg, "ioctl")) {
             mode = MODE_IOCTL;
             break;
-
-          } else {
+          } else if (!strcmp(optarg, "clfs")) {
+            mode = MODE_CLFS;
+            break;
+          }
+          else {
             FATAL("unknown mode");            
           }
         break;
@@ -1141,8 +1151,18 @@ int main(int argc, char** argv) {
 
   if(!at_file) FATAL("-A option is required.");
 
-  init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str, ioctl_recbuf_size);
-  process_ioctl(at_file);
+  if (MODE_IOCTL == mode) {
+    init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str, ioctl_recbuf_size);
+    process_ioctl(at_file);
+  } else if (MODE_CLFS == mode) {
+    init_clfs(target_module, shm_str);
+    process_clfs(at_file);
+  }
+  else {
+    SAYF("should not happen\n");
+  }
+
+
 
   tcnt = write_results();
 

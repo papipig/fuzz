@@ -43,6 +43,8 @@
 #define USE_COLOR
 
 #define MODE_IOCTL  1
+#define MODE_CLFS   2
+
 static char mode = 0;
 static char *ioctl_endpoint = NULL;
 static int ioctl_code = 0;
@@ -50,8 +52,9 @@ static int ioctl_recbuf_size = 0;
 static char *target_module;
 
 void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *shm_name, int ioctl_recbuf_size);
+void init_clfs(char *afl_target, char *shm_name);
 void process_ioctl(char *at_file);
-
+void process_clfs(char *at_file);
 
 #define VERSION "2.43b"
 #define WINAFL_VERSION "1.16b"
@@ -2674,7 +2677,12 @@ static u8 run_target(char** argv, u32 timeout) {
   }
   watchdog_enabled = 1;
 
-  process_ioctl(out_file);
+  if (MODE_IOCTL == mode) {
+    process_ioctl(out_file);
+  }
+  else if (MODE_CLFS == mode) {
+    process_clfs(out_file);
+  }
 
 /*
   int debug_n;
@@ -7247,7 +7255,7 @@ static void usage(u8* argv0) {
        "  -i dir        - input directory with test cases\n"
        "  -o dir        - output directory for fuzzer findings\n"
        "  -p module     - target module to test\n\n"
-       "  -j mode       - fuzzing mode (ioctl)\n\n"
+       "  -j mode       - fuzzing mode (ioctl, clfs)\n\n"
        "  -t msec       - timeout for each run\n\n"
 /*
        "Instrumentation type:\n\n"
@@ -7988,8 +7996,11 @@ int main(int argc, char** argv) {
           if(!strcmp(optarg, "ioctl")) {
             mode = MODE_IOCTL;
             break;
-
-          } else {
+          } else if (!strcmp(optarg, "clfs")) {
+            mode = MODE_CLFS;
+            break;
+          }
+          else {
             FATAL("unknown mode");            
           }
         break;
@@ -8324,9 +8335,12 @@ int main(int argc, char** argv) {
   else
     use_argv = argv + optind;
 
-  if (mode == MODE_IOCTL) {
+  if (MODE_IOCTL == mode) {
     init_ioctl(ioctl_endpoint, ioctl_code, target_module, shm_str, ioctl_recbuf_size);
-  } else {
+  } else if (MODE_CLFS == mode) {
+    init_clfs(target_module, shm_str);
+  }
+  else {
     FATAL("Unknown mode\n");
   }
 

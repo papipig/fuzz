@@ -3,6 +3,7 @@ OBJECTS_FUZZ = test.o interface.o persistent.o afl-fuzz.o
 TARGETFUZZ = afl-fuzz.exe
 TARGETSHOW = afl-showmap.exe
 CFLAGS = -DMINGW -std=c99 -Wunused-function -m64
+LDFLAGS = -lktmw32
 CC = x86_64-w64-mingw32-gcc
 BINDIR := .
 
@@ -14,7 +15,7 @@ clean:
 	$(CC) $(CFLAGS) -c $< -o $@ 
 
 $(TARGETSHOW): $(OBJECTS_SHOW)
-	$(CC) $(OBJECTS_SHOW) -o $(BINDIR)/$@ 
+	$(CC) $(OBJECTS_SHOW) -o $(BINDIR)/$@ $(LDFLAGS) 
 
 $(TARGETFUZZ): $(OBJECTS_FUZZ)
-	$(CC) $(OBJECTS_FUZZ) -o $(BINDIR)/$@ 
+	$(CC) $(OBJECTS_FUZZ) -o $(BINDIR)/$@ $(LDFLAGS) 

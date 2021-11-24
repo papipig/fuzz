@@ -511,6 +511,10 @@ def expand_instr(op, v, imm):
                     '390d',     # cmp [rel32], ecx
                     '3915',     # cmp [rel 0x6],edx
                     '391d',     # cmp [rel 0x6],ebx
+                    '3925',     # cmp [rel 0x6],esp
+                    '392d',     # cmp [rel 0x6],ebp
+                    '3935',     # cmp [rel 0x6],esi
+                    '393d',     # cmp [rel 0x6],edi
                     '3b1d',     # cmp ebx,[rel 0x6]
                     '3b35',     # cmp esi,[rel 0x6]
                     '3b3d',     # cmp edi,[rel 0x6]
@@ -523,8 +527,10 @@ def expand_instr(op, v, imm):
                     '40883d',   # mov [rel32], dil
                     '408a2d',   # mov bpl, [rel32]
                     '440835',   # or [rel 0x7],r14b
+                    '440fb605', # movzx r8d,byte [rel 0x8]
                     '440fb60d', # movzx r9d,byte [rel 0x8]
                     '440fb705', # movzx r8d,word [rel32]
+                    '440fb70d', # movzx r9d,word [rel32]
                     '440fb72d', # movzx r13d,word [rel32]
                     '443815',   # cmp [rel 0x7],r10b
                     '44381d',   # cmp [rel 0x7],r11b
@@ -532,11 +538,14 @@ def expand_instr(op, v, imm):
                     '44382d',   # cmp [rel32], r13d
                     '443835',   # cmp [rel32], r14d
                     '44383d',   # cmp [rel 0x7],r15b
+                    '44392d',   # cmp [rel 0x7],r13d
                     '44393d',   # cmp [rel 0x7],r15d
                     '44873d',   # xchg r15d,[rel 0x7]
                     '44882d',   # mov [rel 0x7],r13b
                     '448905',   # mov [rel 0x7],r8d
                     '44890d',   # mov [rel 0x7],r9d
+                    '448915',   # mov [rel 0x7],r10d
+                    '44891d',   # mov [rel 0x7],r11d
                     '448925',   # mov [rel32], r12d
                     '44892d',   # mov [rel32], r13d
                     '448935',   # mov [rel32], r14d
@@ -604,7 +613,10 @@ def expand_instr(op, v, imm):
                     '4c8b0d',   # mov r9, rel32
                     '4c8b15',   # mov r10,[rel32]
                     '4c8b1d',   # mov r11,[rel32]
+                    '4c8b25',   # mov r12,[rel32]
+                    '4c8b2d',   # mov r13,[rel32]
                     '4c8b35',   # mov r14,[rel 0x7]
+                    '4c8b3d',   # mov r15,[rel 0x7]
                     '4c8d05',   # lea r8, rel32
                     '4c8d0d',   # lea r9, rel32
                     '4c8d15',   # lea r10, rel32
@@ -662,6 +674,7 @@ def expand_instr(op, v, imm):
                     'f00fc105',     # lock xadd [rel 0x8],eax
                     'f00fc10d',     # lock xadd [rel32], ecx
                     'f00fc115',     # lock xadd [rel32], edx
+                    'f0440135',     #lock add [rel 0x8],r14d
                     'f0440fb135',   # lock cmpxchg [rel 0x9],r14d
                     'f0440fb13d',   # lock cmpxchg [rel 0x9],r15d
                     'f0480fb10d',   # lock cmpxchg [rel 0x9],rcx

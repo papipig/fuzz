@@ -2,9 +2,7 @@
 
 # Lab setup
 
-## VM setup
-`apt install virtualbox`
-install debugger VM and target VM
+## VM setup (network)
 
 On debugger VM: install Windbg (windows store)
 
@@ -13,6 +11,7 @@ On target VM:
 bcdedit /set nointegritychecks on
 bcdedit /debug on
 bcdedit /set testsigning on
+bcdedit /set recoveryenabled no
 bcdedit /dbgsettings net hostip:w.x.y.z port:n
 bcdedit /set "{dbgsettings}" busparams b.d.f
 ```
@@ -26,6 +25,47 @@ Remarks:
 * not every adapter will be compatible, virtualbox virtual adapters will be though
 
 Source: https://docs.microsoft.com/en-us/windows-hardware/drivers/debugger/setting-up-a-network-debugging-connection
+
+## VM setup (serial)
+
+On target VM:
+```
+bcdedit /set nointegritychecks on
+bcdedit /debug on
+bcdedit /set testsigning on
+bcdedit /set recoveryenabled no
+bcdedit /dbgsettings serial debugport:1 baudrate:115200
+```
+
+On debugger:
+```
+windbg -k com:port=COM1,baud=115200
+```
+
+## VM setup (qemu/proxmox)
+
+Serial debugging setup requires piping both VMs's serial ports.
+
+```
+socat -v UNIX-CLIENT:/var/run/qemu-server/303.serial0 UNIX-CLIENT:/var/run/qemu-server/302.serial0
+```
+
+Where `303` is target VM, and `302` is debugger VM.
+
+
+## Disabling windows system driver signing
+
+If you need to patch a core windows driver, you need to patch  `winload.exe`, which is different from versions to versions, to validate every driver's signature at boot time.
+
+ Look at `ImgpValidateImageHash` function. You need to return `STATUS_SUCCESS` in `eax`.
+ ```
+00000000  31C0              xor eax,eax
+00000002  40                inc eax
+00000003  C3                ret
+```
+
+You'll have to get ownership of `winload.exe` (it should be owned by `TrustedInstaller`), then you can rename/remove/replace it. Do the same with your patched driver (ex : `clfs.sys`).
+
 
 
 ## Allow sysinternals dbgview to see DbgPrint() in Windows 10
@@ -252,7 +292,7 @@ Will produce : `target.instrumented.sys`. We need to sign it:
 winsign -d sha256 <path to>/target.instrumented.sys <path to>/target.instrumented.signed.sys --certs cert/openssl.crt --key cert/openssl.key  -v
 ```
 
-## Fuzzing
+## Fuzzing IOCTLs
 
 * Load `helper.sys` driver
 * Load target driver (ex : `target.instrumented.signed.sys `)

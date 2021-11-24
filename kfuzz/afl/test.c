@@ -1,4 +1,5 @@
 #include "header.h"
+#include <ktmw32.h>
 
 DWORD g_szFile;
 HANDLE g_hDev;
@@ -201,9 +202,45 @@ void init_ioctl(char *ioctl_endpoint, int ioctl_code, char *afl_target, char *sh
     _ioctl_recbuf_size = ioctl_recbuf_size;
 }
 
- void process_ioctl(char *at_file) {
+void process_ioctl(char *at_file) {
 	PRE();
     process(g_hDev, _ioctl_code, at_file, _ioctl_recbuf_size);
     POST();
  }
 
+
+void init_clfs(char *afl_target, char *shm_name) {
+    INIT(afl_target, shm_name);
+}
+
+/*
+std::wstring Str2Wstr(const std::string& str)
+{
+    int size_needed = MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), NULL, 0);
+    std::wstring wstrTo(size_needed, 0);
+    MultiByteToWideChar(CP_UTF8, 0, &str[0], (int)str.size(), &wstrTo[0], size_needed);
+    return wstrTo;
+}
+*/
+
+void process_clfs(char *at_file) {
+	PRE();
+
+	int size_needed = MultiByteToWideChar(CP_UTF8, 0, &at_file[0], strlen(at_file), NULL, 0);
+	wchar_t name[size_needed + 10];
+	MultiByteToWideChar(CP_UTF8, 0, &at_file[0], strlen(at_file), &name[0], size_needed);
+
+	HANDLE rc = CreateTransactionManager(NULL, name, 0, 0);
+	if (rc == INVALID_HANDLE_VALUE) {
+//		LOG(_T("CreateTransactionManager(): %d\n"), GetLastError());
+	}
+	else {
+//		LOG(_T("Success\n"));
+	}
+
+	RecoverTransactionManager(rc);
+	CloseHandle(rc);
+
+    POST();
+
+ }

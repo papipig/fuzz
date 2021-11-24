@@ -42,6 +42,7 @@ static void LOG(LPCTSTR format, ...)
     LocalFree(OutputBuf); // tyvm @sam shaw
 }
 
+/*
 static void hexDump(char *desc, void *addr, int len) {
 	int i;
 	unsigned char buff[17];
@@ -93,5 +94,6 @@ static void hexDump(char *desc, void *addr, int len) {
 	// And print the final ASCII bit.
 	_tprintf(_T("  %s\n"), buff);
 }
+*/
 
 #endif

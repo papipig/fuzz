@@ -4,7 +4,7 @@ import struct
 import idautils
 import idc
 
-if "donttouch" in globals():
+if "donttouch" not in globals():
     print ("Empty 'donttouch', creating it")
     donttouch = []
 

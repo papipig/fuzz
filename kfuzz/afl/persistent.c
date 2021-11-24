@@ -21,7 +21,7 @@ PUCHAR MDL_ADDR = NULL;
 PUCHAR MDL2_ADDR = NULL;
 
 PUCHAR KCOV_ADDR = NULL;
-HELPER_SECTION_RANGE RANGE = { 0 };
+//HELPER_SECTION_RANGE RANGE = { 0 };
 
 char *backup = NULL;
 
@@ -200,12 +200,10 @@ void setup_pipe() {
 void PRE() {
 
 	//if (!_tgetenv(SHM_ENV_VAR)) return;
-
+/*
 	CHAR command = 0;
 	DWORD num_read = 0;
 	BOOL ret = FALSE;
-
-/*
 	ret = ReadFile(pipe, &command, 1, &num_read, NULL);	// blocking
 
 	if (ret == FALSE) {
@@ -238,7 +236,7 @@ void PRE() {
 	memcpy(DATA_ADDR+0x120, backup+0x120, 4*8);
 	memcpy(DATA_ADDR+0x160, backup+0x160, 0x2600);
 	*/
-	memcpy(backup, DATA_ADDR, RANGE.size);
+	//memcpy(backup, DATA_ADDR, RANGE.size);
 	memset(COV_ADDR, 0, MAP_SIZE + PAGE_SIZE);
 
 	//memcpy(COV_ADDR, buf, sizeof(buf));
