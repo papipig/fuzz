@@ -328,7 +328,6 @@ static u32 write_results(void) {
 
   } else {
 
-
     FILE* f = fdopen(fd, "w");
 
     if (!f) PFATAL("fdopen() failed");
