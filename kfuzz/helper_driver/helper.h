@@ -17,4 +17,19 @@ typedef struct {
 	ULONG size;
 } HELPER_SECTION_RANGE;
 
+typedef struct {
+	ULONGLONG addr;
+	ULONG size;
+} HELPER_MEMORY_RW;
+
+typedef struct {
+	ULONGLONG addr;
+	ULONG size;
+} HELPER_MAP_MEMORY_IN;
+
+typedef struct {
+	ULONGLONG user_addr;
+	ULONGLONG mdl;
+} HELPER_UNMAP_MEMORY_IN;
+
 #endif

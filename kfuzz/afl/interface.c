@@ -1,4 +1,6 @@
 #include "header.h"
+#include <stdlib.h>
+#include <string.h>
 
 PUCHAR HELPER_GetModuleCoverageSectionAddress(PTCHAR pBuffer)
 {
@@ -40,8 +42,12 @@ DWORD HELPER_ReadMemory(PBYTE dwAddr, PBYTE pRetBuffer, DWORD dwLen)
 {
 	DWORD dwRet = 0;
 	BOOLEAN bRet = 0;
+	HELPER_MEMORY_RW req;
 
-	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_READ_MEMORY, &dwAddr, dwLen, pRetBuffer, dwLen, &dwRet, NULL);
+	req.addr = (ULONGLONG)dwAddr;
+	req.size = dwLen;
+
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_READ_MEMORY, &req, sizeof(req), pRetBuffer, dwLen, &dwRet, NULL);
 	if (!bRet) {
 		LOG(_T("HELPER_ReadMemory(%p, %p, %x) failed, GLE(%x)\n"), dwAddr, pRetBuffer, dwLen, GetLastError());
 	}
@@ -52,8 +58,26 @@ DWORD HELPER_WriteMemory(PBYTE dwAddr, PBYTE pRetBuffer, DWORD dwLen)
 {
 	DWORD dwRet = 0;
 	BOOLEAN bRet = 0;
+	HELPER_MEMORY_RW req;
+	BYTE* packet = NULL;
+	DWORD packet_size = 0;
 
-	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_WRITE_MEMORY, &dwAddr, dwLen, pRetBuffer, dwLen, &dwRet, NULL);
+	if (!dwLen) return 0;
+
+	packet_size = sizeof(req) + dwLen;
+	packet = (BYTE*)malloc(packet_size);
+	if (!packet) {
+		LOG(_T("HELPER_WriteMemory(%p, %p, %x) failed, OOM\n"), dwAddr, pRetBuffer, dwLen);
+		return 0;
+	}
+
+	req.addr = (ULONGLONG)dwAddr;
+	req.size = dwLen;
+	memcpy(packet, &req, sizeof(req));
+	memcpy(packet + sizeof(req), pRetBuffer, dwLen);
+
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_WRITE_MEMORY, packet, packet_size, NULL, 0, &dwRet, NULL);
+	free(packet);
 	if (!bRet) {
 		LOG(_T("HELPER_WriteMemory(%p, %p, %x) failed, GLE(%x)\n"), dwAddr, pRetBuffer, dwLen, GetLastError());
 	}
@@ -67,7 +91,7 @@ DWORD HELPER_AllocateMemory(DWORD dwPoolType, DWORD dwLen, DWORD dwTag)
 	DWORD dwData = 0;
 
 	DWORD in[] = { dwPoolType, dwLen, dwTag };
-	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_ALLOCATE_MEMORY, in, sizeof(in), &dwData, sizeof(&dwData), &dwRet, NULL);
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_ALLOCATE_MEMORY, in, sizeof(in), &dwData, sizeof(dwData), &dwRet, NULL);
 	if (!bRet) {
 		LOG(_T("HELPER_AllocateMemory(%x, %x, 0x%x) failed, GLE(%x)\n"), dwPoolType, dwLen, dwTag, GetLastError());
 	}
@@ -91,10 +115,12 @@ DWORD HELPER_MapMemory(PBYTE dwAddr, DWORD dwLen, PBYTE *ptrUserAddr, PBYTE *ptr
 {
 	DWORD dwRet = 0;
 	BOOLEAN bRet = 0;
+	HELPER_MAP_MEMORY_IN in;
 
-	DWORD64 in[] = { (DWORD64)dwAddr, dwLen };
 	PBYTE out[2] = { 0 };
-	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_MAP_MEMORY, in, sizeof(in), out, sizeof(out), &dwRet, NULL);
+	in.addr = (ULONGLONG)dwAddr;
+	in.size = dwLen;
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_MAP_MEMORY, &in, sizeof(in), out, sizeof(out), &dwRet, NULL);
 	if (!bRet) {
 		LOG(_T("HELPER_MapMemory(0x%I64X, %x, %I64X, %I64X) failed, GLE(%x)\n"), dwAddr, dwLen, ptrUserAddr, ptrMdl, GetLastError());
 	}
@@ -107,9 +133,11 @@ DWORD HELPER_UnmapMemory(PBYTE ptrUserAddr, PBYTE ptrMdl)
 {
 	DWORD dwRet = 0;
 	BOOLEAN bRet = 0;
+	HELPER_UNMAP_MEMORY_IN in;
 
-	DWORD64 in[] = { (DWORD64)ptrUserAddr, (DWORD64)ptrMdl };
-	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_UNMAP_MEMORY, in, sizeof(in), NULL, 0, &dwRet, NULL);
+	in.user_addr = (ULONGLONG)ptrUserAddr;
+	in.mdl = (ULONGLONG)ptrMdl;
+	bRet = DeviceIoControl(hHelper, IOCTL_HELPER_UNMAP_MEMORY, &in, sizeof(in), NULL, 0, &dwRet, NULL);
 	if (!bRet) {
 		LOG(_T("HELPER_UnmapMemory(%p, %p) failed, GLE(%x)\n"), ptrUserAddr, ptrMdl);
 	}

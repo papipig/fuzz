@@ -17,6 +17,13 @@ typedef LONG (WINAPI *PVECTORED_EXCEPTION_HANDLER) (PEXCEPTION_POINTERS);
 #define IMAGE_NT_SIGNATURE                0x00004550  // PE00
 #define IMAGE_DOS_SIGNATURE               0x5A4D      // MZ
 
+#define HELPER_MAX_RW_SIZE                (1024 * 1024)
+#define HELPER_MAX_ALLOC_SIZE             (16 * 1024 * 1024)
+#define HELPER_MAX_MAP_SIZE               (16 * 1024 * 1024)
+
+#ifndef KF_HELPER_ALLOW_DANGEROUS_IOCTL
+#define KF_HELPER_ALLOW_DANGEROUS_IOCTL   1
+#endif
 
 #define NonPagedPoolNx	512
 
@@ -186,6 +193,36 @@ typedef struct _SYSTEM_MODULE_INFORMATION
 	ULONG Count;
 	SYSTEM_MODULE_INFORMATION_ENTRY Module[1];
 } SYSTEM_MODULE_INFORMATION, *PSYSTEM_MODULE_INFORMATION;
+
+static NTSTATUS CopyModuleNameFromIoctlBuffer(PVOID buffer, ULONG input_len, CHAR* out_name, SIZE_T out_name_len)
+{
+	ULONG i = 0;
+	const WCHAR* wname;
+	ULONG wchar_count;
+
+	if (!buffer || !out_name || out_name_len < 2 || input_len < sizeof(WCHAR)) {
+		return STATUS_INVALID_PARAMETER;
+	}
+
+	out_name[0] = '\0';
+	wname = (const WCHAR*)buffer;
+	wchar_count = input_len / sizeof(WCHAR);
+
+	for (i = 0; i < wchar_count && i < (ULONG)(out_name_len - 1); i++) {
+		WCHAR ch = wname[i];
+		if (ch == L'\0') {
+			out_name[i] = '\0';
+			return i ? STATUS_SUCCESS : STATUS_INVALID_PARAMETER;
+		}
+		if (ch > 0x7f) {
+			return STATUS_OBJECT_NAME_INVALID;
+		}
+		out_name[i] = (CHAR)ch;
+	}
+
+	out_name[(out_name_len - 1)] = '\0';
+	return STATUS_BUFFER_OVERFLOW;
+}
 
 PVOID
 KernelGetModuleBase(
@@ -471,6 +508,7 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 {
 	UNREFERENCED_PARAMETER(pDevObj);
 	ULONG i = 0, code = 0, len = 0, size = 0;
+	NTSTATUS status = STATUS_SUCCESS;
 	PVOID ptrBaseAddr = 0, ptrRetAddr = 0;
 
 	ULONG ptrRetRVA = 0;
@@ -483,14 +521,28 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 	ANSI_STRING secName;
 	CHAR name[MAX_PATH_LEN] = { 0 };
 	HELPER_SECTION_RANGE range = {0};
+	NTSTATUS name_status = STATUS_SUCCESS;
 
 	stack = IoGetCurrentIrpStackLocation(pIrp);
 	code = stack->Parameters.DeviceIoControl.IoControlCode;
 	switch (code) {
 	case IOCTL_HELPER_GET_DATA_SECTION_ADDRESS:
-		DbgPrint("Get Data Section Address: %s\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
-		//RtlStringCchPrintfA(name, MAX_PATH_LEN, "%ws", pIrp->AssociatedIrp.SystemBuffer);
-		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%s", pIrp->AssociatedIrp.SystemBuffer);
+		if (stack->Parameters.DeviceIoControl.OutputBufferLength < sizeof(HELPER_SECTION_RANGE) ||
+			!pIrp->AssociatedIrp.SystemBuffer ||
+			!stack->Parameters.DeviceIoControl.InputBufferLength) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		name_status = CopyModuleNameFromIoctlBuffer(
+			pIrp->AssociatedIrp.SystemBuffer,
+			stack->Parameters.DeviceIoControl.InputBufferLength,
+			name,
+			sizeof(name));
+		if (!NT_SUCCESS(name_status)) {
+			status = name_status;
+			break;
+		}
+		DbgPrint("Get Data Section Address: %s\n", name);
 
 		ptrBaseAddr = KernelGetModuleBase(name);
 		DbgPrint("KernelGetModuleBase(%s) = %I64x\n", name, ptrBaseAddr);
@@ -536,9 +588,22 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 
 		break;
 	case IOCTL_HELPER_GET_COV_SECTION_ADDRESS:
-		DbgPrint("Get COV Section Address: %s\n", (PWCHAR)pIrp->AssociatedIrp.SystemBuffer);
-		//RtlStringCchPrintfA(name, MAX_PATH_LEN, "%ws", pIrp->AssociatedIrp.SystemBuffer);
-		RtlStringCbPrintfA(name, MAX_PATH_LEN * sizeof(CHAR), "%s", pIrp->AssociatedIrp.SystemBuffer);
+		if (stack->Parameters.DeviceIoControl.OutputBufferLength < sizeof(PVOID) ||
+			!pIrp->AssociatedIrp.SystemBuffer ||
+			!stack->Parameters.DeviceIoControl.InputBufferLength) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		name_status = CopyModuleNameFromIoctlBuffer(
+			pIrp->AssociatedIrp.SystemBuffer,
+			stack->Parameters.DeviceIoControl.InputBufferLength,
+			name,
+			sizeof(name));
+		if (!NT_SUCCESS(name_status)) {
+			status = name_status;
+			break;
+		}
+		DbgPrint("Get COV Section Address: %s\n", name);
 
 		ptrBaseAddr = KernelGetModuleBase(name);
 		DbgPrint("KernelGetModuleBase(%s) = %I64x\n", name, ptrBaseAddr);
@@ -579,39 +644,187 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 
 		break;
 	case IOCTL_HELPER_READ_MEMORY:
-		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		KdPrint(("Read memory: addr 0x%X, size %d\n", ptrBaseAddr, stack->Parameters.DeviceIoControl.InputBufferLength));
-#if 0
-		ReadMemory(ptrBaseAddr, (UCHAR*)pIrp->AssociatedIrp.SystemBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
-#else
-		RtlCopyMemory((UCHAR*)pIrp->AssociatedIrp.SystemBuffer, (UCHAR*)ptrBaseAddr, stack->Parameters.DeviceIoControl.InputBufferLength);
-#endif
-		len = stack->Parameters.DeviceIoControl.InputBufferLength;
+		if (!KF_HELPER_ALLOW_DANGEROUS_IOCTL) {
+			status = STATUS_ACCESS_DENIED;
+			break;
+		}
+
+		if (!pIrp->AssociatedIrp.SystemBuffer) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HELPER_MEMORY_RW)) {
+			HELPER_MEMORY_RW* req = (HELPER_MEMORY_RW*)pIrp->AssociatedIrp.SystemBuffer;
+			ptrBaseAddr = (PVOID)(ULONG_PTR)req->addr;
+			size = req->size;
+		} else if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(PVOID)) {
+			ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
+			size = stack->Parameters.DeviceIoControl.OutputBufferLength;
+		} else {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+
+		if (!ptrBaseAddr || !size) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		if (size > HELPER_MAX_RW_SIZE) {
+			status = STATUS_INVALID_BUFFER_SIZE;
+			break;
+		}
+
+		if (size > stack->Parameters.DeviceIoControl.OutputBufferLength) {
+			size = stack->Parameters.DeviceIoControl.OutputBufferLength;
+		}
+
+		KdPrint(("Read memory: addr 0x%p, size %lu\n", ptrBaseAddr, size));
+		status = ReadMemory(ptrBaseAddr, (UCHAR*)pIrp->AssociatedIrp.SystemBuffer, size);
+		if (!NT_SUCCESS(status)) {
+			break;
+		}
+		len = size;
 		break;
 	case IOCTL_HELPER_WRITE_MEMORY:
-		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		DbgPrint("Write memory: addr 0x%X, size %d\n", ptrBaseAddr, stack->Parameters.DeviceIoControl.InputBufferLength);
-		WriteMemory(ptrBaseAddr, (UCHAR*)pIrp->UserBuffer, stack->Parameters.DeviceIoControl.InputBufferLength);
+		if (!KF_HELPER_ALLOW_DANGEROUS_IOCTL) {
+			status = STATUS_ACCESS_DENIED;
+			break;
+		}
+
+		if (!pIrp->AssociatedIrp.SystemBuffer) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HELPER_MEMORY_RW)) {
+			HELPER_MEMORY_RW* req = (HELPER_MEMORY_RW*)pIrp->AssociatedIrp.SystemBuffer;
+			UCHAR* payload = (UCHAR*)pIrp->AssociatedIrp.SystemBuffer + sizeof(HELPER_MEMORY_RW);
+			ptrBaseAddr = (PVOID)(ULONG_PTR)req->addr;
+			size = req->size;
+			if (stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(HELPER_MEMORY_RW) + size) {
+				status = STATUS_BUFFER_TOO_SMALL;
+				break;
+			}
+			if (!ptrBaseAddr || !size) {
+				status = STATUS_INVALID_PARAMETER;
+				break;
+			}
+			if (size > HELPER_MAX_RW_SIZE) {
+				status = STATUS_INVALID_BUFFER_SIZE;
+				break;
+			}
+			DbgPrint("Write memory: addr 0x%p, size %lu\n", ptrBaseAddr, size);
+			status = WriteMemory(ptrBaseAddr, payload, size);
+			if (!NT_SUCCESS(status)) {
+				break;
+			}
+		} else if (stack->Parameters.DeviceIoControl.InputBufferLength > sizeof(PVOID)) {
+			UCHAR* payload = (UCHAR*)pIrp->AssociatedIrp.SystemBuffer + sizeof(PVOID);
+			ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
+			size = stack->Parameters.DeviceIoControl.InputBufferLength - sizeof(PVOID);
+			if (size > HELPER_MAX_RW_SIZE) {
+				status = STATUS_INVALID_BUFFER_SIZE;
+				break;
+			}
+			DbgPrint("Write memory(legacy): addr 0x%p, size %lu\n", ptrBaseAddr, size);
+			status = WriteMemory(ptrBaseAddr, payload, size);
+			if (!NT_SUCCESS(status)) {
+				break;
+			}
+		} else {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
 		len = 0;
 		break;
 	case IOCTL_HELPER_ALLOCATE_MEMORY:
+		if (!KF_HELPER_ALLOW_DANGEROUS_IOCTL) {
+			status = STATUS_ACCESS_DENIED;
+			break;
+		}
+
+		if (!pIrp->AssociatedIrp.SystemBuffer || stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ULONG) * 3) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
 		ptrType = *(ULONG*)pIrp->AssociatedIrp.SystemBuffer;
 		size = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer+1);
 		ptrTag = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer+2);
+		if (!size || size > HELPER_MAX_ALLOC_SIZE) {
+			status = STATUS_INVALID_BUFFER_SIZE;
+			break;
+		}
 		DbgPrint("Allocate memory: pooltype 0x%x, tag %X, size 0x%x\n", ptrType, ptrTag, size);
 		*((PVOID*)pIrp->AssociatedIrp.SystemBuffer) = (PVOID)ExAllocatePoolWithTag(ptrType, size, ptrTag);
+		if (!*((PVOID*)pIrp->AssociatedIrp.SystemBuffer)) {
+			status = STATUS_INSUFFICIENT_RESOURCES;
+			break;
+		}
 		len = sizeof(ULONG *);
 		break;
 	case IOCTL_HELPER_FREE_MEMORY:
-		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		ptrTag = *((ULONG*)pIrp->AssociatedIrp.SystemBuffer+1);
+		if (!KF_HELPER_ALLOW_DANGEROUS_IOCTL) {
+			status = STATUS_ACCESS_DENIED;
+			break;
+		}
+
+		if (!pIrp->AssociatedIrp.SystemBuffer || stack->Parameters.DeviceIoControl.InputBufferLength < sizeof(ULONGLONG) * 2) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(ULONGLONG) * 2) {
+			ULONGLONG* in64 = (ULONGLONG*)pIrp->AssociatedIrp.SystemBuffer;
+			ptrBaseAddr = (PVOID)(ULONG_PTR)in64[0];
+			ptrTag = (ULONG)in64[1];
+		} else if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(PVOID) + sizeof(ULONG)) {
+			ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
+			ptrTag = *((ULONG*)((UCHAR*)pIrp->AssociatedIrp.SystemBuffer + sizeof(PVOID)));
+		} else {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+		if (!ptrBaseAddr) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
 		DbgPrint("free memory: tag %X, address 0x%I64X\n", ptrTag, ptrBaseAddr);
 		ExFreePoolWithTag((PVOID)ptrBaseAddr, ptrTag);
 		len = 0;
 		break;
 	case IOCTL_HELPER_MAP_MEMORY:
-		ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		size = (ULONG)*((PVOID*)pIrp->AssociatedIrp.SystemBuffer + 1);
+		if (!KF_HELPER_ALLOW_DANGEROUS_IOCTL) {
+			status = STATUS_ACCESS_DENIED;
+			break;
+		}
+
+		if (!pIrp->AssociatedIrp.SystemBuffer || stack->Parameters.DeviceIoControl.OutputBufferLength < sizeof(PVOID) * 2) {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+
+		if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HELPER_MAP_MEMORY_IN)) {
+			HELPER_MAP_MEMORY_IN* req = (HELPER_MAP_MEMORY_IN*)pIrp->AssociatedIrp.SystemBuffer;
+			ptrBaseAddr = (PVOID)(ULONG_PTR)req->addr;
+			size = req->size;
+		} else if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(PVOID) * 2) {
+			ptrBaseAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
+			size = (ULONG)*((PVOID*)pIrp->AssociatedIrp.SystemBuffer + 1);
+		} else {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+
+		if (!ptrBaseAddr || !size) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+		if (size > HELPER_MAX_MAP_SIZE) {
+			status = STATUS_INVALID_BUFFER_SIZE;
+			break;
+		}
+
 		DbgPrint("Kernel Address: 0x%I64X\n", ptrBaseAddr);
 		DbgPrint("Size: 0x%X\n", size);
 
@@ -619,6 +832,9 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 		if (ns == STATUS_SUCCESS) {
 			DbgPrint("Mapped User Address: 0x%I64X\n", ptrUserAddr);
 			DbgPrint("MDL Address: 0x%I64X\n", ptrMdl);
+		} else {
+			status = ns;
+			break;
 		}
 
 		*((PVOID*)pIrp->AssociatedIrp.SystemBuffer) = ptrUserAddr;
@@ -626,10 +842,35 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 		len = sizeof(ULONG *)*2;
 		break;
 	case IOCTL_HELPER_UNMAP_MEMORY:
-		ptrUserAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
-		ptrMdl = *((PVOID*)pIrp->AssociatedIrp.SystemBuffer + 1);
-		DbgPrint("Unmapped User Address: 0x%X\n", ptrUserAddr);
-		DbgPrint("MDL Address: 0x%X\n", ptrMdl);
+		if (!KF_HELPER_ALLOW_DANGEROUS_IOCTL) {
+			status = STATUS_ACCESS_DENIED;
+			break;
+		}
+
+		if (!pIrp->AssociatedIrp.SystemBuffer) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(HELPER_UNMAP_MEMORY_IN)) {
+			HELPER_UNMAP_MEMORY_IN* req = (HELPER_UNMAP_MEMORY_IN*)pIrp->AssociatedIrp.SystemBuffer;
+			ptrUserAddr = (PVOID)(ULONG_PTR)req->user_addr;
+			ptrMdl = (PVOID)(ULONG_PTR)req->mdl;
+		} else if (stack->Parameters.DeviceIoControl.InputBufferLength >= sizeof(PVOID) * 2) {
+			ptrUserAddr = *(PVOID*)pIrp->AssociatedIrp.SystemBuffer;
+			ptrMdl = *((PVOID*)pIrp->AssociatedIrp.SystemBuffer + 1);
+		} else {
+			status = STATUS_BUFFER_TOO_SMALL;
+			break;
+		}
+
+		if (!ptrUserAddr || !ptrMdl) {
+			status = STATUS_INVALID_PARAMETER;
+			break;
+		}
+
+		DbgPrint("Unmapped User Address: 0x%p\n", ptrUserAddr);
+		DbgPrint("MDL Address: 0x%p\n", ptrMdl);
 		UnmapMemory((PVOID)ptrUserAddr, (PMDL)ptrMdl);
 		len = 0;
 		break;
@@ -639,13 +880,14 @@ NTSTATUS DispatchIoctl(PDEVICE_OBJECT pDevObj, PIRP pIrp)
 		break;
 	default:
 		DbgPrint("Invalid IOCTL code: 0x%X\n", code);
+		status = STATUS_INVALID_DEVICE_REQUEST;
 		break;
 	}
 
 	pIrp->IoStatus.Information = len;
-	pIrp->IoStatus.Status = STATUS_SUCCESS;
+	pIrp->IoStatus.Status = status;
 	IoCompleteRequest(pIrp, IO_NO_INCREMENT);
-	return STATUS_SUCCESS;
+	return status;
 }
 
 NTSTATUS DriverEntry(PDRIVER_OBJECT pDrvObj, PUNICODE_STRING pRegPath)

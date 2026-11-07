@@ -1,5 +1,6 @@
 #include "header.h"
 #include <ktmw32.h>
+#include <stdlib.h>
 
 DWORD g_szFile;
 HANDLE g_hDev;
@@ -29,10 +30,8 @@ BOOL analyze_potential_leaks(PVOID buffer, UINT size) {
 		return FALSE;
 	}
 
-	for (i = 0; i < size; i += 8) {
-		if (i > size)
-			break;
-		DWORD64 content = ((DWORD64 *)buffer)[i];
+	for (i = 0; i + sizeof(DWORD64) <= size; i += sizeof(DWORD64)) {
+		DWORD64 content = ((DWORD64*)buffer)[i / sizeof(DWORD64)];
 		if ((content >= 0xFFFF800000000000 && content <= 0xFFFFFFFFFFFFFFFF) && content != 0xFFFFFFFFFFFFFFFF) {
 			LOG(_T("LEAK? %i: %I64d\n"), i, content);
 		}
@@ -180,13 +179,31 @@ void init_device(TCHAR* name) {
 }
 
 void process(HANDLE hDev, DWORD iocode, PTCHAR input_path, int ioctl_recbuf_size) {
-	TCHAR outbuf[ioctl_recbuf_size];
+	TCHAR* outbuf = NULL;
 
 	PVOID inbuf = mapInputFile(input_path);
-
-	if (g_szFile) {
-		sendIoctl(hDev, iocode, inbuf, g_szFile, outbuf, ioctl_recbuf_size);
+	if (!inbuf || !g_szFile) {
+		if (inbuf) {
+			UnmapViewOfFile(inbuf);
+		}
+		return;
 	}
+
+	if (ioctl_recbuf_size <= 0 || ioctl_recbuf_size > (1024 * 1024)) {
+		LOG(_T("Invalid ioctl_recbuf_size %d\n"), ioctl_recbuf_size);
+		UnmapViewOfFile(inbuf);
+		return;
+	}
+
+	outbuf = (TCHAR*)malloc((size_t)ioctl_recbuf_size);
+	if (!outbuf) {
+		LOG(_T("Failed to allocate IOCTL output buffer\n"));
+		UnmapViewOfFile(inbuf);
+		return;
+	}
+
+	sendIoctl(hDev, iocode, inbuf, g_szFile, outbuf, ioctl_recbuf_size);
+	free(outbuf);
 	UnmapViewOfFile(inbuf);
 }
 
