@@ -1,0 +1,1 @@
+IN=/hdd/proj/fuzz/vm_shared/clfs ; ./pe-afl.py ${IN}.sys ${IN}.sys.dump.txt && echo "OK" && ./sign.sh ${IN}.instrumented.sys ${IN}.signed.sys
